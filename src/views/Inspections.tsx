@@ -14,7 +14,7 @@ import {
 } from '@/components/ui';
 import { inspectionStatusMeta } from '@/lib/status';
 import { can } from '@/config/roles';
-import { formatDate, TODAY, daysUntil, uid, classNames } from '@/lib/format';
+import { formatDate, today, daysUntil, uid, classNames } from '@/lib/format';
 import type { Inspection, InspectionType, InspectionStatus, InspectionItem } from '@/types';
 
 const TYPE_META: Record<InspectionType, { label: string; icon: React.ReactNode }> = {
@@ -114,7 +114,7 @@ function ScheduleModal({ onClose }: { onClose: () => void }) {
 
   const [unitId, setUnitId] = useState(units[0]?.id ?? '');
   const [type, setType] = useState<InspectionType>('routine');
-  const [scheduledDate, setScheduledDate] = useState(TODAY);
+  const [scheduledDate, setScheduledDate] = useState(today());
   const [inspectorId, setInspectorId] = useState(inspectors[0]?.id ?? '');
 
   const submit = () => {
@@ -157,7 +157,7 @@ function InspectionModal({ inspectionId, onClose }: { inspectionId: string; onCl
 
   const complete = () => {
     const items: InspectionItem[] = AREAS.map((a) => ({ area: a, condition: conditions[a] }));
-    dispatch(dataActions.updateInspection({ id: insp.id, status: 'completed', completedDate: TODAY, items, notes: notes || undefined, depositDeductions: deductions || undefined }));
+    dispatch(dataActions.updateInspection({ id: insp.id, status: 'completed', completedDate: today(), items, notes: notes || undefined, depositDeductions: deductions || undefined }));
     dispatch(pushToast({ id: uid('t'), kind: 'success', message: `${insp.code} marked complete.` }));
     onClose();
   };

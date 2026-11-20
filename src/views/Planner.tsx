@@ -14,7 +14,7 @@ import {
   PageHeader, Card, SectionCard, StatCard, Badge, Avatar, EmptyState, Chip, Modal, Field, Input, Select,
 } from '@/components/ui';
 import { can } from '@/config/roles';
-import { formatDate, TODAY, daysUntil, uid, classNames } from '@/lib/format';
+import { formatDate, today, daysUntil, uid, classNames } from '@/lib/format';
 import type { TaskItem, CalendarEvent } from '@/types';
 
 // ===========================================================================
@@ -103,7 +103,7 @@ function NewTaskModal({ onClose }: { onClose: () => void }) {
   const properties = useMemo(() => data.properties.filter((p) => scoped.has(p.id)), [data.properties, scoped]);
 
   const [title, setTitle] = useState('');
-  const [dueDate, setDueDate] = useState(TODAY);
+  const [dueDate, setDueDate] = useState(today());
   const [priority, setPriority] = useState<TaskItem['priority']>('medium');
   const [assignedToId, setAssignedToId] = useState(staff[0]?.id ?? '');
   const [propertyId, setPropertyId] = useState('');
@@ -150,8 +150,8 @@ const ymd = (y: number, m: number, d: number) => `${y}-${pad(m + 1)}-${pad(d)}`;
 export function Calendar() {
   const navigate = useNavigate();
   const data = useAppSelector(selectData);
-  const [cursor, setCursor] = useState(() => { const [y, m] = TODAY.split('-').map(Number); return { y, m: m - 1 }; });
-  const [selected, setSelected] = useState(TODAY);
+  const [cursor, setCursor] = useState(() => { const [y, m] = today().split('-').map(Number); return { y, m: m - 1 }; });
+  const [selected, setSelected] = useState(today());
 
   // Merge seeded events + tasks with due dates
   const events = useMemo<CalendarEvent[]>(() => {
@@ -196,7 +196,7 @@ export function Calendar() {
               <h2 className="text-lg font-bold text-ink-900">{MONTHS[cursor.m]} {cursor.y}</h2>
               <div className="flex items-center gap-1">
                 <button className="rounded-lg p-1.5 text-ink-500 hover:bg-ink-100" onClick={() => shift(-1)}><ChevronLeft className="h-4 w-4" /></button>
-                <button className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-ink-600 hover:bg-ink-100" onClick={() => { const [y, m] = TODAY.split('-').map(Number); setCursor({ y, m: m - 1 }); setSelected(TODAY); }}>Today</button>
+                <button className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-ink-600 hover:bg-ink-100" onClick={() => { const [y, m] = today().split('-').map(Number); setCursor({ y, m: m - 1 }); setSelected(today()); }}>Today</button>
                 <button className="rounded-lg p-1.5 text-ink-500 hover:bg-ink-100" onClick={() => shift(1)}><ChevronRight className="h-4 w-4" /></button>
               </div>
             </div>
@@ -206,7 +206,7 @@ export function Calendar() {
                 if (d === null) return <div key={i} />;
                 const ds = ymd(cursor.y, cursor.m, d);
                 const evs = byDate[ds] ?? [];
-                const isToday = ds === TODAY;
+                const isToday = ds === today();
                 const isSel = ds === selected;
                 return (
                   <button key={i} onClick={() => setSelected(ds)}

@@ -1,6 +1,7 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 import type { SeedData } from '@/data/seed';
 import { uid, nowIso } from '@/lib/format';
+import { planArrears } from '@/lib/deposit';
 import type {
   Property, Building, Unit, Tenant, Lease, Invoice, Payment, MaintenanceRequest,
   MaintenanceRound, Expense, Vendor, Inspection, Meter, Listing, Lead, DocumentRecord,
@@ -227,6 +228,18 @@ const dataSlice = createSlice({
       }
     },
 
+    waiveLateFee(state, action: PayloadAction<{ invoiceId: string; actorId: string; reason: string }>) {
+      const inv = state.invoices.find((i) => i.id === action.payload.invoiceId);
+      if (inv && (inv.penalty ?? 0) > 0) {
+        const fee = inv.penalty ?? 0;
+        inv.total = Math.max(0, inv.total - fee);
+        inv.penalty = 0;
+        inv.lateFeeWaivedOn = nowIso().slice(0, 10);
+        recomputeInvoice(inv);
+        logAudit(state, 'edit', 'Invoice', inv.id, action.payload.actorId, `Waived the ₦${fee.toLocaleString('en-NG')} late fee on ${inv.code}: ${action.payload.reason}`);
+      }
+    },
+
     // ===== Properties / buildings / units ===================================
     createProperty: {
       reducer(state, action: PayloadAction<Property>) {
@@ -308,6 +321,7 @@ const dataSlice = createSlice({
       const l = state.leases.find((x) => x.id === action.payload.leaseId);
       if (l) {
         l.status = 'terminated';
+        l.terminatedOn = nowIso().slice(0, 10);
         const unit = state.units.find((u) => u.id === l.unitId);
         if (unit) unit.status = 'available';
         logAudit(state, 'edit', 'Lease', l.id, action.payload.actorId, `Terminated lease ${l.code}`);
@@ -432,10 +446,60 @@ const dataSlice = createSlice({
     addMeterReading(state, action: PayloadAction<{ meterId: string; value: number; date: string }>) {
       const m = state.meters.find((x) => x.id === action.payload.meterId);
       if (m) {
+        // A meter never billed keeps its starting point, so use between bills is not lost as readings roll on.
+        m.billedReading = m.billedReading ?? m.previousReading ?? m.currentReading;
         m.previousReading = m.currentReading;
         m.currentReading = action.payload.value;
         m.history.push({ date: action.payload.date, value: action.payload.value });
       }
+    },
+
+    /** Bills the use read so far. The invoice itself is raised by the server and arrives with the next refresh. */
+    billMeter(state, action: PayloadAction<{ meterId: string; actorId: string }>) {
+      const m = state.meters.find((x) => x.id === action.payload.meterId);
+      if (m) {
+        m.billedReading = m.currentReading;
+        m.billedAt = nowIso().slice(0, 10);
+        m.unbilledUnits = 0;
+        m.unbilledAmount = 0;
+      }
+    },
+
+    // ===== Security deposits ================================================
+    receiveDeposit(state, action: PayloadAction<{ leaseId: string; actorId: string; amount: number; method: string; reference?: string; date?: string }>) {
+      const { leaseId, actorId, amount, method, reference, date } = action.payload;
+      const lease = state.leases.find((l) => l.id === leaseId);
+      if (!lease) return;
+      lease.depositLedger = [
+        ...(lease.depositLedger ?? []),
+        { id: uid('dep'), type: 'received', amount, date: date ?? nowIso().slice(0, 10), note: `Deposit received by ${method}${reference ? ` (${reference})` : ''}`, byId: actorId },
+      ];
+      logAudit(state, 'edit', 'Lease', lease.id, actorId, `Received ₦${amount.toLocaleString('en-NG')} security deposit on ${lease.code}`);
+    },
+    settleDeposit(state, action: PayloadAction<{ leaseId: string; actorId: string; deductions: { reason: string; amount: number }[]; applyToArrears?: boolean }>) {
+      const { leaseId, actorId, deductions, applyToArrears } = action.payload;
+      const lease = state.leases.find((l) => l.id === leaseId);
+      if (!lease) return;
+      const ledger = [...(lease.depositLedger ?? [])];
+      const held = ledger.reduce((s, e) => s + (e.type === 'received' ? e.amount : -e.amount), 0);
+      const kept = deductions.reduce((s, d) => s + d.amount, 0);
+      const date = nowIso().slice(0, 10);
+      for (const d of deductions) ledger.push({ id: uid('dep'), type: 'deduction', amount: d.amount, date, note: d.reason, byId: actorId });
+      let applied = 0;
+      if (applyToArrears) {
+        for (const { invoice, amount } of planArrears(state.invoices, state.payments, leaseId, held - kept)) {
+          const inv = state.invoices.find((i) => i.id === invoice.id)!;
+          inv.amountPaid += amount;
+          recomputeInvoice(inv);
+          ledger.push({ id: uid('dep'), type: 'offset', amount, date, note: `Applied to invoice ${inv.code}`, byId: actorId });
+          applied += amount;
+        }
+      }
+      const refund = held - kept - applied;
+      if (refund > 0) ledger.push({ id: uid('dep'), type: 'refund', amount: refund, date, note: 'Balance refunded to the tenant', byId: actorId });
+      lease.depositLedger = ledger;
+      lease.depositSettledOn = date;
+      logAudit(state, 'edit', 'Lease', lease.id, actorId, `Settled the deposit on ${lease.code}: ₦${kept.toLocaleString('en-NG')} kept${applied ? `, ₦${applied.toLocaleString('en-NG')} applied to unpaid invoices` : ''}, ₦${Math.max(0, refund).toLocaleString('en-NG')} refunded`);
     },
 
     // ===== Documents ========================================================

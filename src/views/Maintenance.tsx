@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from '@/lib/router';
 import {
   Wrench, Plus, AlertTriangle, Clock, CheckCircle2, ArrowLeft, User, Building2, Coins,
@@ -21,11 +21,12 @@ import {
 } from '@/components/ui';
 import { maintenanceStatusMeta, urgencyMeta, payoutStatusMeta } from '@/lib/status';
 import { can } from '@/config/roles';
-import { formatDate, formatDateTime, fromNow, uid, classNames, TODAY } from '@/lib/format';
+import { formatDate, formatDateTime, fromNow, uid, classNames, today } from '@/lib/format';
 import type {
   MaintenanceRequest, MaintenanceStatus, MaintenanceUrgency, MaintenanceRound, MaintenanceRoundStage,
-  MaintenancePayout,
+  MaintenancePayout, PropertyMember,
 } from '@/types';
+import { api } from '@/lib/api';
 
 const CATEGORIES = ['Plumbing', 'Electrical', 'HVAC', 'Appliance', 'Structural', 'Pest control', 'Security', 'Cleaning', 'Other'];
 const URGENCIES: MaintenanceUrgency[] = ['low', 'medium', 'high', 'emergency'];
@@ -571,7 +572,7 @@ function RoundModal({ request, onClose }: { request: MaintenanceRequest; onClose
 
   const submit = () => {
     if (!findings.trim()) { dispatch(pushToast({ id: uid('t'), kind: 'error', message: 'Add what you found on this round.' })); return; }
-    dispatch(dataActions.addMaintenanceRound({ id: request.id, actorId: user!.id, round: { stage, date: TODAY, byId: user!.id, outcome, findings: findings.trim() } }));
+    dispatch(dataActions.addMaintenanceRound({ id: request.id, actorId: user!.id, round: { stage, date: today(), byId: user!.id, outcome, findings: findings.trim() } }));
     dispatch(pushToast({ id: uid('t'), kind: 'success', message: `${ROUND_META[stage].label} recorded.` }));
     onClose();
   };
@@ -628,14 +629,41 @@ function VerifyModal({ request, onClose, onVerify }: { request: MaintenanceReque
   );
 }
 
-function AssignModal({ request, onClose, onAssign }: { request: MaintenanceRequest; onClose: () => void; onAssign: (changes: Partial<MaintenanceRequest>) => void }) {
+/**
+ * Assign a work order. In-house staff are limited to technicians on *this property's* team — the app can
+ * see technicians from the owner's other properties too, but the server only accepts people on this one.
+ */
+export function AssignModal({ request, onClose, onAssign }: { request: MaintenanceRequest; onClose: () => void; onAssign: (changes: Partial<MaintenanceRequest>) => void }) {
   const data = useAppSelector(selectData);
-  const staff = data.users.filter((u) => u.role === 'maintenance');
   const vendors = data.vendors;
-  const [mode, setMode] = useState<'staff' | 'vendor'>(staff.length ? 'staff' : 'vendor');
-  const [assignedToId, setAssignedToId] = useState(staff[0]?.id ?? '');
+
+  const [team, setTeam] = useState<PropertyMember[] | null>(null);
+  const [teamFailed, setTeamFailed] = useState(false);
+  useEffect(() => {
+    let live = true;
+    api.propertyMembers(request.propertyId)
+      .then((rows) => { if (live) setTeam(rows as PropertyMember[]); })
+      .catch(() => { if (live) setTeamFailed(true); });
+    return () => { live = false; };
+  }, [request.propertyId]);
+
+  const staff = useMemo(() => {
+    const onTeam = new Set((team ?? []).filter((m) => m.status === 'active' && m.role === 'maintenance' && m.userId).map((m) => m.userId as string));
+    return data.users.filter((u) => u.role === 'maintenance' && onTeam.has(u.id));
+  }, [team, data.users]);
+
+  const loading = team === null && !teamFailed;
+  const [mode, setMode] = useState<'staff' | 'vendor'>('staff');
+  const [assignedToId, setAssignedToId] = useState('');
   const [vendorId, setVendorId] = useState(vendors[0]?.id ?? '');
   const [specifiedMaterials, setSpecifiedMaterials] = useState(request.specifiedMaterials ?? '');
+
+  // keep the selection on someone who is actually on the team
+  useEffect(() => {
+    setAssignedToId((current) => (staff.some((s) => s.id === current) ? current : staff[0]?.id ?? ''));
+  }, [staff]);
+
+  const canConfirm = mode === 'staff' ? !!assignedToId : !!vendorId;
 
   const confirm = () => {
     const spec = specifiedMaterials.trim() || undefined;
@@ -643,16 +671,22 @@ function AssignModal({ request, onClose, onAssign }: { request: MaintenanceReque
     else onAssign({ vendorId, assignedToId: undefined, specifiedMaterials: spec });
   };
 
+  const noStaff = teamFailed
+    ? 'We couldn’t load this property’s team. Close this and try again.'
+    : 'No technicians are on this property’s team yet. Invite one from the property page, or use an external vendor.';
+
   return (
     <Modal open onClose={onClose} title="Assign work order" subtitle={request.title} size="md"
-      footer={<><button className="btn-secondary" onClick={onClose}>Cancel</button><button className="btn-primary" onClick={confirm}>Assign</button></>}>
+      footer={<><button className="btn-secondary" onClick={onClose}>Cancel</button><button className="btn-primary" onClick={confirm} disabled={!canConfirm}>Assign</button></>}>
       <div className="space-y-4">
         <div className="flex gap-2">
           <Chip active={mode === 'staff'} onClick={() => setMode('staff')}>In-house staff</Chip>
           <Chip active={mode === 'vendor'} onClick={() => setMode('vendor')}>External vendor</Chip>
         </div>
         {mode === 'staff' ? (
-          staff.length ? <Field label="Technician"><Select value={assignedToId} onChange={(e) => setAssignedToId(e.target.value)}>{staff.map((s) => <option key={s.id} value={s.id}>{s.name}{s.title ? ` · ${s.title}` : ''}</option>)}</Select></Field> : <p className="text-sm text-ink-500">No in-house staff available.</p>
+          loading ? <p className="text-sm text-ink-500">Loading this property’s team…</p>
+            : staff.length ? <Field label="Technician"><Select value={assignedToId} onChange={(e) => setAssignedToId(e.target.value)}>{staff.map((s) => <option key={s.id} value={s.id}>{s.name}{s.title ? ` · ${s.title}` : ''}</option>)}</Select></Field>
+              : <p className="text-sm text-ink-500">{noStaff}</p>
         ) : (
           vendors.length ? <Field label="Vendor"><Select value={vendorId} onChange={(e) => setVendorId(e.target.value)}>{vendors.map((v) => <option key={v.id} value={v.id}>{v.name} · {v.service}</option>)}</Select></Field> : <p className="text-sm text-ink-500">No vendors on file.</p>
         )}

@@ -206,12 +206,17 @@ export function PaymentReviewModal({ paymentId, onClose }: { paymentId: string; 
             </div>
             <dl className="mt-3 grid grid-cols-2 gap-x-4 border-t border-ink-100 pt-2">
               <KeyValue label="Property">{property?.name ?? '—'}</KeyValue>
-              <KeyValue label="Unit"><button className="text-brand-600 hover:underline" onClick={() => unit && (onClose(), navigate(`/units/${unit.id}`))}>{unit?.code ?? '—'}</button></KeyValue>
+              <KeyValue label="Unit">
+                {/* The unit page is staff-only: a tenant would only be sent back to the portal, so for them it is plain text. */}
+                {user?.role === 'tenant' || !unit
+                  ? (unit?.code ?? '—')
+                  : <button className="text-brand-600 hover:underline" onClick={() => (onClose(), navigate(`/units/${unit.id}`))}>{unit.code}</button>}
+              </KeyValue>
             </dl>
           </div>
 
           {invoice ? (
-            <button onClick={() => { onClose(); navigate(`/invoices/${invoice.id}`); }} className="block w-full rounded-xl border border-ink-200 p-4 text-left transition-colors hover:border-brand-300 hover:bg-brand-50/30">
+            <button onClick={() => { onClose(); navigate(user?.role === 'tenant' ? `/portal/bills/${invoice.id}` : `/invoices/${invoice.id}`); }} className="block w-full rounded-xl border border-ink-200 p-4 text-left transition-colors hover:border-brand-300 hover:bg-brand-50/30">
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 text-sm font-bold text-ink-800"><FileText className="h-4 w-4 text-ink-400" />{invoice.code}</span>
                 <StatusBadge meta={invoiceStatusMeta(invoice.status)} />

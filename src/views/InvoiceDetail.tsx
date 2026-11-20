@@ -11,12 +11,15 @@ import { dataActions } from '@/store/dataSlice';
 import { pushToast } from '@/store/uiSlice';
 import {
   PageHeader, Breadcrumbs, Card, SectionCard, StatusBadge, Money, KeyValue, Avatar,
-  EmptyState, DataTable, type Column, ConfirmDialog,
+  EmptyState, DataTable, type Column, ConfirmDialog, Modal, Field, Textarea,
 } from '@/components/ui';
 import { PaymentReviewModal } from '@/components/PaymentReviewModal';
 import { RecordPaymentModal } from '@/components/RecordPaymentModal';
+import { InvoiceAutoDebitCard } from '@/components/InvoiceAutoDebitCard';
 import { invoiceStatusMeta, paymentStatusMeta } from '@/lib/status';
+import { UtilityLineDetail } from '@/components/UtilityLineDetail';
 import { exportToPdf } from '@/lib/export';
+import { pdfLineDescription } from '@/lib/invoiceLines';
 import { formatDate, uid } from '@/lib/format';
 import { can } from '@/config/roles';
 import type { Payment } from '@/types';
@@ -30,6 +33,8 @@ export function InvoiceDetail() {
   const [paying, setPaying] = useState(false);
   const [reviewId, setReviewId] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [waiving, setWaiving] = useState(false);
+  const [waiveReason, setWaiveReason] = useState('');
 
   const invoice = data.invoices.find((i) => i.id === id);
 
@@ -61,6 +66,16 @@ export function InvoiceDetail() {
   const canPay = can(user?.role, 'manage_payments') && outstanding > 0 && invoice.status !== 'cancelled';
   const canCancel = can(user?.role, 'manage_financials') && invoice.amountPaid === 0 && invoice.status !== 'cancelled' && invoice.status !== 'fully-paid';
 
+  const canWaive = can(user?.role, 'approve') && (invoice.penalty ?? 0) > 0 && invoice.status !== 'cancelled';
+
+  const doWaive = () => {
+    if (waiveReason.trim().length < 3) return;
+    dispatch(dataActions.waiveLateFee({ invoiceId: invoice.id, actorId: user!.id, reason: waiveReason.trim() }));
+    dispatch(pushToast({ id: uid('t'), kind: 'success', message: `Late fee on ${invoice.code} waived.` }));
+    setWaiving(false);
+    setWaiveReason('');
+  };
+
   const downloadPdf = () => {
     exportToPdf({
       filename: invoice.code,
@@ -68,8 +83,8 @@ export function InvoiceDetail() {
       subtitle: `${property?.name ?? ''} · Unit ${unit?.code ?? ''}`,
       columns: ['Description', 'Type', 'Amount (₦)'],
       rows: [
-        ...invoice.lineItems.map((li) => [li.description, li.type.replace('-', ' '), li.amount.toLocaleString('en-NG')]),
-        ...(invoice.penalty ? [['Late penalty', '', invoice.penalty.toLocaleString('en-NG')]] : []),
+        ...invoice.lineItems.map((li) => [pdfLineDescription(li, data.meters), li.type.replace('-', ' '), li.amount.toLocaleString('en-NG')]),
+        ...(invoice.penalty ? [['Late fee', '', invoice.penalty.toLocaleString('en-NG')]] : []),
         ...(invoice.discount ? [['Discount', '', `-${invoice.discount.toLocaleString('en-NG')}`]] : []),
         ['', 'TOTAL', invoice.total.toLocaleString('en-NG')],
         ['', 'PAID', invoice.amountPaid.toLocaleString('en-NG')],
@@ -112,6 +127,7 @@ export function InvoiceDetail() {
         subtitle={`Issued ${formatDate(invoice.issueDate)} · due ${formatDate(invoice.dueDate)}`}
         actions={<>
           <button className="btn-secondary" onClick={downloadPdf}><Download className="h-4 w-4" /> PDF</button>
+          {canWaive && <button className="btn-secondary" onClick={() => setWaiving(true)}>Waive late fee</button>}
           {canCancel && <button className="btn-secondary text-red-600 hover:bg-red-50" onClick={() => setCancelling(true)}><Ban className="h-4 w-4" /> Cancel</button>}
           {canPay && <button className="btn-primary" onClick={() => setPaying(true)}><Plus className="h-4 w-4" /> Record payment</button>}
         </>}
@@ -146,7 +162,7 @@ export function InvoiceDetail() {
               <tbody className="divide-y divide-ink-50">
                 {invoice.lineItems.map((li) => (
                   <tr key={li.id}>
-                    <td className="py-2.5"><span className="font-medium text-ink-700">{li.description}</span><span className="ml-2 rounded bg-ink-100 px-1.5 py-0.5 text-[10px] capitalize text-ink-500">{li.type.replace('-', ' ')}</span></td>
+                    <td className="py-2.5"><span className="font-medium text-ink-700">{li.description}</span><span className="ml-2 rounded bg-ink-100 px-1.5 py-0.5 text-[10px] capitalize text-ink-500">{li.type.replace('-', ' ')}</span><UtilityLineDetail item={li} staff={true} /></td>
                     <td className="py-2.5 text-right"><Money value={li.amount} className="text-ink-800" /></td>
                   </tr>
                 ))}
@@ -155,7 +171,7 @@ export function InvoiceDetail() {
 
             <div className="mt-4 space-y-1.5 border-t border-ink-100 pt-4 text-sm">
               <Row label="Subtotal"><Money value={subtotal} /></Row>
-              {!!invoice.penalty && <Row label="Late penalty"><Money value={invoice.penalty} className="text-red-600" /></Row>}
+              {!!invoice.penalty && <Row label="Late fee"><Money value={invoice.penalty} className="text-red-600" /></Row>}
               {!!invoice.discount && <Row label="Discount"><Money value={-invoice.discount} className="text-brand-600" /></Row>}
               <div className="flex items-center justify-between border-t border-ink-100 pt-2 text-base">
                 <span className="font-bold text-ink-800">Total</span><Money value={invoice.total} className="text-lg font-extrabold text-ink-900" />
@@ -182,6 +198,8 @@ export function InvoiceDetail() {
             </dl>
           </SectionCard>
 
+          <InvoiceAutoDebitCard invoiceId={invoice.id} />
+
           <SectionCard title="Linked records">
             <div className="space-y-2">
               {tenant && <LinkRow icon={<UserRound className="h-4 w-4" />} label={tenant.name} sub="Tenant" onClick={() => navigate(`/tenants/${tenant.id}`)} avatar={tenant.avatarColor} />}
@@ -203,6 +221,14 @@ export function InvoiceDetail() {
 
       {paying && <RecordPaymentModal invoiceId={invoice.id} onClose={() => setPaying(false)} title={`Record payment · ${invoice.code}`} />}
       {reviewId && <PaymentReviewModal paymentId={reviewId} onClose={() => setReviewId(null)} />}
+      {waiving && (
+        <Modal open onClose={() => setWaiving(false)} title="Waive late fee" subtitle={`${invoice.code} · ₦${(invoice.penalty ?? 0).toLocaleString('en-NG')}`} size="sm"
+          footer={<><button className="btn-secondary" onClick={() => setWaiving(false)}>Cancel</button><button className="btn-primary" disabled={waiveReason.trim().length < 3} onClick={doWaive}>Waive fee</button></>}>
+          <Field label="Reason" hint="Recorded in the audit log and shown to the tenant's notification.">
+            <Textarea value={waiveReason} onChange={(e) => setWaiveReason(e.target.value)} placeholder="e.g. Bank delay on the tenant's side" />
+          </Field>
+        </Modal>
+      )}
       <ConfirmDialog open={cancelling} onClose={() => setCancelling(false)} onConfirm={doCancel} danger title="Cancel this invoice?" message={`${invoice.code} will be voided. This can't be undone.`} confirmLabel="Cancel invoice" />
     </div>
   );

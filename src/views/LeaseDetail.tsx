@@ -14,6 +14,8 @@ import {
   EmptyState, DataTable, type Column, Modal, Field, Input, ConfirmDialog,
 } from '@/components/ui';
 import { PaymentReviewModal } from '@/components/PaymentReviewModal';
+import { DepositCard } from '@/components/DepositCard';
+import { depositHeld } from '@/lib/deposit';
 import { RecordPaymentModal } from '@/components/RecordPaymentModal';
 import { leaseStatusMeta, invoiceStatusMeta, paymentStatusMeta } from '@/lib/status';
 import { formatDate, addMonths, daysUntil, uid } from '@/lib/format';
@@ -101,7 +103,7 @@ export function LeaseDetail() {
         <StatCard label="Annual rent" value={<Money value={lease.rent} compact />} icon={<Coins className="h-5 w-5" />} tone="green" />
         <StatCard label="Outstanding" value={<Money value={balance} compact />} icon={<Coins className="h-5 w-5" />} tone={balance > 0 ? 'amber' : 'gray'} />
         <StatCard label={isActive ? 'Ends in' : 'Ended'} value={isActive ? `${Math.max(0, daysLeft)}d` : formatDate(lease.endDate)} icon={<CalendarClock className="h-5 w-5" />} tone={isActive && daysLeft < 60 ? 'red' : 'blue'} hint={isActive ? formatDate(lease.endDate) : undefined} />
-        <StatCard label="Deposit held" value={<Money value={lease.securityDeposit} compact />} icon={<ShieldCheck className="h-5 w-5" />} tone="purple" />
+        <StatCard label="Deposit held" value={<Money value={depositHeld(lease)} compact />} hint={`of ₦${(lease.securityDeposit ?? 0).toLocaleString('en-NG')} required`} icon={<ShieldCheck className="h-5 w-5" />} tone="purple" />
       </div>
 
       <div className="grid gap-5 lg:grid-cols-3">
@@ -126,6 +128,8 @@ export function LeaseDetail() {
             {lease.notes && <p className="mt-3 border-t border-ink-100 pt-3 text-sm text-ink-500">{lease.notes}</p>}
           </SectionCard>
 
+          <DepositCard lease={lease} />
+
           <SectionCard title="Parties">
             <div className="space-y-2">
               {tenant && <LinkRow label={tenant.name} sub="Tenant" onClick={() => navigate(`/tenants/${tenant.id}`)} avatar={tenant.avatarColor} />}
@@ -142,7 +146,7 @@ export function LeaseDetail() {
         dispatch(pushToast({ id: uid('t'), kind: 'success', message: `${lease.code} renewed to ${formatDate(newEnd)}.` }));
         setRenewing(false);
       }} />}
-      <ConfirmDialog open={terminating} onClose={() => setTerminating(false)} onConfirm={doTerminate} danger title="Terminate this lease?" message={`${lease.code} will be ended and Unit ${unit?.code ?? ''} released back to available. This can't be undone.`} confirmLabel="Terminate lease" />
+      <ConfirmDialog open={terminating} onClose={() => setTerminating(false)} onConfirm={doTerminate} danger title="Terminate this lease?" message={`${lease.code} will be ended and Unit ${unit?.code ?? ''} released back to available. Any utility use still unbilled on the unit's meters is billed to the tenant now, so log the final readings first. This can't be undone.`} confirmLabel="Terminate lease" />
     </div>
   );
 }

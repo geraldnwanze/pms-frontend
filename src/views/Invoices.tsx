@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from '@/lib/router';
 import { Plus, Wallet, Coins, AlertTriangle, TrendingUp, BellRing } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { selectData, selectCurrentUser, scopedPropertyIds, invoiceOutstanding } from '@/store/selectors';
+import { selectData, selectCurrentUser, scopedPropertyIds, invoiceOutstanding, isOverdue } from '@/store/selectors';
 import { dataActions } from '@/store/dataSlice';
 import { pushToast } from '@/store/uiSlice';
 import { api, ApiError } from '@/lib/api';
@@ -13,9 +13,12 @@ import {
   Modal, Field, Input, Select,
 } from '@/components/ui';
 import { invoiceStatusMeta } from '@/lib/status';
+import { useAutoDebitOverview } from '@/hooks/useAutoDebitOverview';
+import { AutoDebitBadge } from '@/components/AutoDebitBadge';
 import { can } from '@/config/roles';
-import { formatDate, TODAY, addMonths, uid, classNames } from '@/lib/format';
+import { formatDate, today, addMonths, uid, classNames } from '@/lib/format';
 import type { Invoice, InvoiceStatus, PaymentType, BillingCycle } from '@/types';
+import { monthsInCycle, periodShare } from '@/lib/billing';
 
 const STATUS_FILTERS: { key: InvoiceStatus | 'all'; label: string }[] = [
   { key: 'all', label: 'All' },
@@ -36,6 +39,8 @@ export function Invoices() {
   const [status, setStatus] = useState<InvoiceStatus | 'all'>('all');
   const [creating, setCreating] = useState(false);
   const [reminding, setReminding] = useState(false);
+  const autoDebit = useAutoDebitOverview();
+  const [adFilter, setAdFilter] = useState<'all' | 'on' | 'attention'>('all');
 
   const canRemind = ['admin', 'owner', 'manager', 'finance'].includes(user?.role ?? '');
 
@@ -61,12 +66,26 @@ export function Invoices() {
     () => data.invoices.filter((i) => scoped.has(i.propertyId)).slice().sort((a, b) => b.issueDate.localeCompare(a.issueDate)),
     [data.invoices, scoped],
   );
-  const rows = status === 'all' ? all : all.filter((i) => i.status === status);
+  // "Overdue" is decided by the calendar (unpaid and past its due date), not the stored status
+  // field, which only changes when something rewrites it — the reminder job uses the same rule.
+  const inFilter = (i: Invoice, key: InvoiceStatus | 'all') => (key === 'all' ? true : key === 'overdue' ? isOverdue(i) : i.status === key);
+  // Auto-debit chips (staff only): "on auto-debit" = any invoice it is handling; "needs attention" = failing or given up.
+  const adInfo = (id: string) => autoDebit?.invoices[id];
+  const adMatch = (i: Invoice) => {
+    const a = adInfo(i.id);
+    if (adFilter === 'on') return !!a;
+    if (adFilter === 'attention') return a?.state === 'retrying' || a?.state === 'manual';
+    return true;
+  };
+  const adOn = autoDebit ? all.filter((i) => adInfo(i.id)).length : 0;
+  const adVisible = adOn > 0; // don't add an empty column for portfolios nobody has enrolled in
+  const adAttention = autoDebit ? all.filter((i) => ['retrying', 'manual'].includes(adInfo(i.id)?.state ?? '')).length : 0;
+  const rows = all.filter((i) => inFilter(i, status) && adMatch(i));
 
   const billed = all.filter((i) => i.status !== 'cancelled').reduce((s, i) => s + i.total, 0);
   const collected = all.reduce((s, i) => s + i.amountPaid, 0);
   const outstanding = all.filter((i) => i.status !== 'cancelled').reduce((s, i) => s + invoiceOutstanding(i), 0);
-  const overdue = all.filter((i) => i.status === 'overdue').length;
+  const overdue = all.filter(isOverdue).length;
 
   const tenantName = (id: string) => data.tenants.find((t) => t.id === id)?.name ?? '—';
   const unitCode = (id: string) => data.units.find((u) => u.id === id)?.code ?? '—';
@@ -87,6 +106,11 @@ export function Invoices() {
     { key: 'paid', header: 'Paid', align: 'right', sortValue: (i) => i.amountPaid, render: (i) => <Money value={i.amountPaid} className="text-brand-700" /> },
     { key: 'out', header: 'Outstanding', align: 'right', sortValue: (i) => invoiceOutstanding(i), render: (i) => <Money value={invoiceOutstanding(i)} className={invoiceOutstanding(i) > 0 ? 'font-semibold text-amber-600' : 'text-ink-400'} /> },
     { key: 'status', header: 'Status', sortValue: (i) => i.status, render: (i) => <StatusBadge meta={invoiceStatusMeta(i.status)} /> },
+    ...(adVisible ? [{
+      key: 'autodebit', header: 'Auto-debit',
+      sortValue: (i: Invoice) => adInfo(i.id)?.state ?? 'zzz',
+      render: (i: Invoice) => { const a = adInfo(i.id); return a ? <AutoDebitBadge state={a.state} info={a} /> : <span className="text-ink-300">—</span>; },
+    }] : []),
   ];
 
   return (
@@ -116,10 +140,24 @@ export function Invoices() {
         {STATUS_FILTERS.map((f) => (
           <Chip key={f.key} active={status === f.key} onClick={() => setStatus(f.key)}>
             {f.label}
-            {f.key !== 'all' && <span className={classNames('ml-1', status === f.key ? 'text-white/80' : 'text-ink-400')}>{all.filter((i) => i.status === f.key).length}</span>}
+            {f.key !== 'all' && <span className={classNames('ml-1', status === f.key ? 'text-white/80' : 'text-ink-400')}>{all.filter((i) => inFilter(i, f.key)).length}</span>}
           </Chip>
         ))}
       </div>
+
+      {autoDebit && (adVisible || autoDebit.enrolledTenants.length > 0) && (
+        <div className="mb-4 flex flex-wrap items-center gap-1.5">
+          <span className="mr-1 text-xs font-semibold uppercase tracking-wide text-ink-400">Auto-debit</span>
+          <Chip active={adFilter === 'all'} onClick={() => setAdFilter('all')}>All invoices</Chip>
+          <Chip active={adFilter === 'on'} onClick={() => setAdFilter('on')}>
+            On auto-debit <span className={classNames('ml-1', adFilter === 'on' ? 'text-white/80' : 'text-ink-400')}>{adOn}</span>
+          </Chip>
+          <Chip active={adFilter === 'attention'} onClick={() => setAdFilter('attention')}>
+            Needs attention <span className={classNames('ml-1', adFilter === 'attention' ? 'text-white/80' : adAttention ? 'font-semibold text-red-500' : 'text-ink-400')}>{adAttention}</span>
+          </Chip>
+          <span className="ml-1 text-xs text-ink-400">{autoDebit.enrolledTenants.length} tenant{autoDebit.enrolledTenants.length === 1 ? '' : 's'} enrolled</span>
+        </div>
+      )}
 
       <Card padded={false}>
         <DataTable
@@ -139,15 +177,17 @@ export function Invoices() {
   );
 }
 
-const CHARGE_DEFS: { key: keyof typeof CHARGE_LABELS; type: PaymentType; label: string }[] = [
-  { key: 'rent', type: 'rent', label: 'Rent' },
-  { key: 'serviceCharge', type: 'service-charge', label: 'Service charge' },
-  { key: 'utilityCharge', type: 'utility', label: 'Utility' },
-  { key: 'otherCharges', type: 'other', label: 'Other charges' },
+// Rent and service charge are annual figures, so an invoice carries the share of the year it covers.
+// Utility and other charges are billed as they stand.
+const CHARGE_DEFS: { key: keyof typeof CHARGE_LABELS; type: PaymentType; label: string; annual: boolean }[] = [
+  { key: 'rent', type: 'rent', label: 'Rent', annual: true },
+  { key: 'serviceCharge', type: 'service-charge', label: 'Service charge', annual: true },
+  { key: 'utilityCharge', type: 'utility', label: 'Utility', annual: false },
+  { key: 'otherCharges', type: 'other', label: 'Other charges', annual: false },
 ];
 const CHARGE_LABELS = { rent: '', serviceCharge: '', utilityCharge: '', otherCharges: '' };
 
-function GenerateInvoiceModal({ onClose }: { onClose: () => void }) {
+export function GenerateInvoiceModal({ onClose }: { onClose: () => void }) {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const data = useAppSelector(selectData);
@@ -162,13 +202,22 @@ function GenerateInvoiceModal({ onClose }: { onClose: () => void }) {
   const unit = lease ? data.units.find((u) => u.id === lease.unitId) : undefined;
   const tenant = lease ? data.tenants.find((t) => t.id === lease.tenantId) : undefined;
 
-  const [issueDate, setIssueDate] = useState(TODAY);
-  const [dueDate, setDueDate] = useState(addMonths(TODAY, 1).slice(0, 10));
+  const [issueDate, setIssueDate] = useState(today());
+  const [dueDate, setDueDate] = useState(addMonths(today(), 1).slice(0, 10));
   const [selected, setSelected] = useState<Record<string, boolean>>({ rent: true, serviceCharge: true, utilityCharge: false, otherCharges: false });
 
+  // How many months this invoice covers: the lease's billing cycle unless the person says otherwise.
+  const [monthsText, setMonthsText] = useState<string | null>(null);          // what is typed in the box, until the person leaves it
+  const defaultMonths = monthsInCycle(lease?.billingCycle);
+  const months = monthsText === null ? defaultMonths : Math.min(24, Math.max(1, Math.round(Number(monthsText)) || 1));
+  const amountFor = (c: (typeof CHARGE_DEFS)[number]) => {
+    const annual = unit ? (unit[c.key as keyof typeof unit] as number) : 0;
+    return c.annual ? periodShare(annual, months) : annual;
+  };
+
   const lineItems = unit
-    ? CHARGE_DEFS.filter((c) => selected[c.key] && (unit[c.key as keyof typeof unit] as number) > 0)
-        .map((c) => ({ id: uid('li'), description: c.label, type: c.type, amount: unit[c.key as keyof typeof unit] as number }))
+    ? CHARGE_DEFS.filter((c) => selected[c.key] && amountFor(c) > 0)
+        .map((c) => ({ id: uid('li'), description: c.annual ? `${c.label} — ${months} month${months === 1 ? '' : 's'}` : c.label, type: c.type, amount: amountFor(c) }))
     : [];
   const total = lineItems.reduce((s, li) => s + li.amount, 0);
 
@@ -192,7 +241,7 @@ function GenerateInvoiceModal({ onClose }: { onClose: () => void }) {
       ) : (
         <div className="space-y-4">
           <Field label="Lease">
-            <Select value={leaseId} onChange={(e) => setLeaseId(e.target.value)}>
+            <Select value={leaseId} onChange={(e) => { setLeaseId(e.target.value); setMonthsText(null); }}>
               {leases.map((l) => {
                 const u = data.units.find((x) => x.id === l.unitId);
                 const t = data.tenants.find((x) => x.id === l.tenantId);
@@ -204,11 +253,16 @@ function GenerateInvoiceModal({ onClose }: { onClose: () => void }) {
             <Field label="Issue date"><Input type="date" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} /></Field>
             <Field label="Due date"><Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></Field>
           </div>
+          <Field label="Months billed" hint="Rent and service charge are annual figures; this invoice carries this many months of them.">
+            <Input type="number" min={1} max={24} step={1} value={monthsText ?? months}
+              onChange={(e) => setMonthsText(e.target.value)}
+              onBlur={() => setMonthsText(String(months))} />
+          </Field>
           <div>
             <p className="label mb-2">Charges</p>
             <div className="space-y-1.5">
               {CHARGE_DEFS.map((c) => {
-                const amt = unit ? (unit[c.key as keyof typeof unit] as number) : 0;
+                const amt = amountFor(c);
                 const disabled = amt <= 0;
                 return (
                   <label key={c.key} className={classNames('flex items-center justify-between rounded-lg border px-3 py-2', disabled ? 'border-ink-100 opacity-50' : 'border-ink-200', selected[c.key] && !disabled && 'border-brand-300 bg-brand-50/40')}>

@@ -2,18 +2,19 @@
 
 import { useMemo, useState } from 'react';
 import { useNavigate } from '@/lib/router';
-import { FileText, Plus, CalendarClock, Coins, CheckCircle2 } from 'lucide-react';
+import { FileText, Plus, CalendarClock, Coins, CheckCircle2, BellRing } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { selectData, selectCurrentUser, scopedPropertyIds, currentLeaseForUnit } from '@/store/selectors';
+import { selectData, selectCurrentUser, scopedPropertyIds, currentLeaseForUnit, isLeaseExpiring } from '@/store/selectors';
 import { dataActions } from '@/store/dataSlice';
 import { pushToast } from '@/store/uiSlice';
+import { api, ApiError } from '@/lib/api';
 import {
   PageHeader, Card, StatCard, StatusBadge, Money, Avatar, Chip, DataTable, type Column, ExportMenu,
   Modal, Field, Input, Select,
 } from '@/components/ui';
 import { leaseStatusMeta } from '@/lib/status';
 import { can } from '@/config/roles';
-import { formatDate, TODAY, addMonths, daysUntil, uid, classNames } from '@/lib/format';
+import { formatDate, today, addMonths, daysUntil, uid, classNames } from '@/lib/format';
 import type { Lease, LeaseStatus, BillingCycle } from '@/types';
 
 const STATUS_FILTERS: { key: LeaseStatus | 'all'; label: string }[] = [
@@ -27,20 +28,46 @@ const STATUS_FILTERS: { key: LeaseStatus | 'all'; label: string }[] = [
 
 export function Leases() {
   const navigate = useNavigate();
+  const dispatch = useAppDispatch();
   const data = useAppSelector(selectData);
   const user = useAppSelector(selectCurrentUser);
   const scoped = useAppSelector(scopedPropertyIds);
+  const propertyFilter = useAppSelector((s) => s.ui.propertyFilter);
   const [status, setStatus] = useState<LeaseStatus | 'all'>('all');
   const [creating, setCreating] = useState(false);
+  const [reminding, setReminding] = useState(false);
+
+  const canRemind = ['admin', 'owner', 'manager', 'finance'].includes(user?.role ?? '');
+
+  const sendReminders = async () => {
+    setReminding(true);
+    try {
+      const { data: r } = await api.sendLeaseRenewalReminders(propertyFilter === 'all' ? undefined : propertyFilter);
+      dispatch(pushToast({
+        id: uid('t'),
+        kind: r.leases === 0 ? 'info' : 'success',
+        message: r.leases === 0
+          ? 'No leases expiring soon — nothing to send.'
+          : `Renewal reminders sent for ${r.leases} expiring lease${r.leases === 1 ? '' : 's'} (${r.emailed} email${r.emailed === 1 ? '' : 's'}).`,
+      }));
+    } catch (err) {
+      dispatch(pushToast({ id: uid('t'), kind: 'error', message: err instanceof ApiError ? err.message : 'Could not send reminders.' }));
+    } finally {
+      setReminding(false);
+    }
+  };
 
   const all = useMemo(
     () => data.leases.filter((l) => scoped.has(l.propertyId)).slice().sort((a, b) => b.startDate.localeCompare(a.startDate)),
     [data.leases, scoped],
   );
-  const rows = status === 'all' ? all : all.filter((l) => l.status === status);
+  const inFilter = (l: Lease, key: LeaseStatus | 'all') => (key === 'all' ? true : key === 'expiring' ? isLeaseExpiring(l) : l.status === key);
+  const rows = all.filter((l) => inFilter(l, status));
 
   const activeLeases = all.filter((l) => ['active', 'expiring', 'renewed'].includes(l.status));
-  const expiring = all.filter((l) => l.status === 'expiring').length;
+  const expiring = all.filter((l) => isLeaseExpiring(l)).length;
+  // Calendar-based (see isLeaseExpiring) — also what the server's renewal reminders use.
+  const renewalDue = expiring;
   const rentRoll = activeLeases.reduce((s, l) => s + l.rent, 0);
 
   const tenantName = (id: string) => data.tenants.find((t) => t.id === id)?.name ?? '—';
@@ -70,6 +97,11 @@ export function Leases() {
         subtitle="Tenancy agreements across your portfolio"
         actions={<>
           <ExportMenu filename="leases" title="Leases" rows={exportRows} size="md" />
+          {canRemind && (
+            <button className="btn-secondary" onClick={sendReminders} disabled={reminding || renewalDue === 0} title={renewalDue === 0 ? 'No leases ending within 60 days' : undefined}>
+              <BellRing className="h-4 w-4" /> {reminding ? 'Sending…' : `Remind expiring${renewalDue ? ` (${renewalDue})` : ''}`}
+            </button>
+          )}
           {can(user?.role, 'create') && <button className="btn-primary" onClick={() => setCreating(true)}><Plus className="h-4 w-4" /> New lease</button>}
         </>}
       />
@@ -85,7 +117,7 @@ export function Leases() {
         {STATUS_FILTERS.map((f) => (
           <Chip key={f.key} active={status === f.key} onClick={() => setStatus(f.key)}>
             {f.label}
-            {f.key !== 'all' && <span className={classNames('ml-1', status === f.key ? 'text-white/80' : 'text-ink-400')}>{all.filter((l) => l.status === f.key).length}</span>}
+            {f.key !== 'all' && <span className={classNames('ml-1', status === f.key ? 'text-white/80' : 'text-ink-400')}>{all.filter((l) => inFilter(l, f.key)).length}</span>}
           </Chip>
         ))}
       </div>
@@ -132,8 +164,8 @@ function CreateLeaseModal({ onClose }: { onClose: () => void }) {
   }, [data.leases, data.tenants]);
 
   const [tenantId, setTenantId] = useState(freeTenants[0]?.id ?? '');
-  const [startDate, setStartDate] = useState(TODAY);
-  const [endDate, setEndDate] = useState(addMonths(TODAY, 12).slice(0, 10));
+  const [startDate, setStartDate] = useState(today());
+  const [endDate, setEndDate] = useState(addMonths(today(), 12).slice(0, 10));
   const [rent, setRent] = useState(unit?.rent ?? 0);
   const [cycle, setCycle] = useState<BillingCycle>('annual');
   const [deposit, setDeposit] = useState(unit?.securityDeposit ?? 0);

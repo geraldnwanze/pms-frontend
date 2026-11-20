@@ -3,6 +3,7 @@
 import { useEffect, type ReactNode } from 'react';
 import { Provider } from 'react-redux';
 import { store } from '@/store';
+import { ToastHost } from '@/components/layout/ToastHost';
 
 /**
  * Client-side app shell: mounts the Redux store and keeps the `.dark` class on
@@ -26,5 +27,11 @@ export function Providers({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  return <Provider store={store}>{children}</Provider>;
+  // ToastHost lives here, not in the app layout, so pages outside it (sign-in, register, password reset) can show errors too.
+  return (
+    <Provider store={store}>
+      {children}
+      <ToastHost />
+    </Provider>
+  );
 }

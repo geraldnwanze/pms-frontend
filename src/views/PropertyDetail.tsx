@@ -16,7 +16,8 @@ import { api } from '@/lib/api';
 import { ROLE_LABELS } from '@/config/roles';
 import { AddBuildingModal, AddUnitModal, EditBuildingModal, EditPropertyModal, EditUnitModal } from '@/components/StructureModals';
 import { buildingTypeLabel } from '@/config/buildings';
-import { Field, Input, Select, Avatar } from '@/components/ui';
+import { coverImage, imageUrls } from '@/lib/media';
+import { Field, Input, Select, Avatar, PhotoStrip, PhotoGallery } from '@/components/ui';
 import type { MemberRole, PropertyMember } from '@/types';
 import {
   PageHeader, Breadcrumbs, Card, SectionCard, StatCard, Badge, StatusBadge, Money, ProgressBar,
@@ -122,9 +123,11 @@ export function PropertyDetail() {
         </>}
       />
 
+      <PhotoGallery photos={property.photos} name={property.name} className="mb-5" />
+
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="Units" value={`${perf.occupied}/${perf.units}`} icon={<DoorOpen className="h-5 w-5" />} tone="indigo" hint={`${formatPercent(perf.occupancyRate)} occupied`} />
-        <StatCard label="Expected / mo" value={<Money value={perf.monthlyExpectedRent} compact />} icon={<Wallet className="h-5 w-5" />} tone="blue" />
+        <StatCard label="Annual rent roll" value={<Money value={perf.annualRentRoll} compact />} icon={<Wallet className="h-5 w-5" />} tone="blue" />
         <StatCard label="Collected" value={<Money value={perf.collected} compact />} icon={<Coins className="h-5 w-5" />} tone="green" hint={`${formatPercent(perf.collectionRate)} collection`} />
         <StatCard label="Outstanding" value={<Money value={perf.outstanding} compact />} icon={<AlertTriangle className="h-5 w-5" />} tone={perf.outstanding > 0 ? 'amber' : 'gray'} />
       </div>
@@ -237,6 +240,11 @@ export function PropertyDetail() {
                       <button className="btn-ghost text-xs" onClick={() => setStructureModal({ kind: 'unit', buildingId: b.id })}><Plus className="h-3.5 w-3.5" /> Add unit</button>
                     </div>
                   ) : undefined}>
+                  {imageUrls(b.photos).length > 0 && (
+                    <div className="border-b border-ink-100 px-5 py-3">
+                      <PhotoStrip photos={b.photos} max={6} label={`${b.name} interior`} />
+                    </div>
+                  )}
                   {bUnits.length === 0
                     ? <div className="px-5 py-6 text-sm text-ink-400">No units in this building yet.</div>
                     : <UnitsTable units={bUnits} onOpen={(u) => navigate(`/units/${u.id}`)}
@@ -388,7 +396,15 @@ function OccRow({ label, value, total, tone }: { label: string; value: number; t
 function UnitsTable({ units, onOpen, onEdit }: { units: Unit[]; onOpen: (u: Unit) => void; onEdit?: (u: Unit) => void }) {
   const data = useAppSelector(selectData);
   const columns: Column<Unit>[] = [
-    { key: 'code', header: 'Unit', sortValue: (u) => u.code, render: (u) => <span className="font-semibold text-ink-800">{u.code}</span> },
+    { key: 'code', header: 'Unit', sortValue: (u) => u.code, render: (u) => (
+      <span className="flex items-center gap-2">
+        {coverImage(u.photos) && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={coverImage(u.photos)} alt="" className="h-8 w-8 rounded-md object-cover ring-1 ring-ink-200" />
+        )}
+        <span className="font-semibold text-ink-800">{u.code}</span>
+      </span>
+    ) },
     { key: 'type', header: 'Type', render: (u) => <span className="text-ink-600">{u.type}</span> },
     { key: 'floor', header: 'Floor', align: 'center', sortValue: (u) => u.floor, render: (u) => u.floor },
     { key: 'config', header: 'Config', render: (u) => <span className="text-ink-500">{u.bedrooms}bd · {u.bathrooms}ba</span> },

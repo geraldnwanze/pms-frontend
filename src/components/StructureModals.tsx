@@ -5,7 +5,8 @@ import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { selectData, scopedPropertyIds, selectCurrentUser } from '@/store/selectors';
 import { dataActions } from '@/store/dataSlice';
 import { pushToast } from '@/store/uiSlice';
-import { Modal, Field, Input, Select, Textarea } from '@/components/ui';
+import { Modal, Field, Input, Select, Textarea, PhotoPicker, LocationFields } from '@/components/ui';
+import { isImageRef } from '@/lib/media';
 import { can } from '@/config/roles';
 import { BUILDING_TYPES } from '@/config/buildings';
 import { uid } from '@/lib/format';
@@ -54,6 +55,7 @@ export function AddBuildingModal({
   const [buildingType, setBuildingType] = useState(BUILDING_TYPES[0].value);
   const [floors, setFloors] = useState(1);
   const [description, setDescription] = useState('');
+  const [photos, setPhotos] = useState<string[]>([]);
 
   const submit = () => {
     if (!propertyId) {
@@ -71,6 +73,7 @@ export function AddBuildingModal({
         buildingType,
         floors: Number(floors) || 1,
         description: description.trim() || undefined,
+        photos,
       } as Omit<BuildingT, 'id' | 'code'>),
     );
     dispatch(pushToast({ id: uid('t'), kind: 'success', message: 'Building added.' }));
@@ -118,6 +121,9 @@ export function AddBuildingModal({
         <Field label="Description">
           <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} />
         </Field>
+        <Field label="Interior photos">
+          <PhotoPicker value={photos} onChange={setPhotos} hint="Rooms, hallways, finishes — JPG, PNG or WebP · the first is the cover" />
+        </Field>
       </div>
     </Modal>
   );
@@ -161,6 +167,7 @@ export function AddUnitModal({
   const [securityDeposit, setSecurityDeposit] = useState(0);
   const [utilityCharge, setUtilityCharge] = useState(0);
   const [otherCharges, setOtherCharges] = useState(0);
+  const [photos, setPhotos] = useState<string[]>([]);
 
   // Keep the building selector in step when the property changes.
   const effectiveBuildingId = buildings.some((b) => b.id === buildingId)
@@ -194,6 +201,7 @@ export function AddUnitModal({
         securityDeposit: Number(securityDeposit) || 0,
         utilityCharge: Number(utilityCharge) || 0,
         otherCharges: Number(otherCharges) || 0,
+        photos,
       } as Omit<UnitT, 'id' | 'meterIds'>),
     );
     dispatch(pushToast({ id: uid('t'), kind: 'success', message: 'Unit added.' }));
@@ -282,6 +290,10 @@ export function AddUnitModal({
           <Field label="Utility charge"><Input type="number" min={0} value={utilityCharge} onChange={num(setUtilityCharge)} /></Field>
           <Field label="Other charges"><Input type="number" min={0} value={otherCharges} onChange={num(setOtherCharges)} /></Field>
         </div>
+
+        <Field label="Photos">
+          <PhotoPicker value={photos} onChange={setPhotos} hint="Rooms, finishes, views — JPG, PNG or WebP · the first is the cover" />
+        </Field>
       </div>
     </Modal>
   );
@@ -295,6 +307,7 @@ export function EditBuildingModal({ building, onClose }: { building: BuildingT; 
   const [buildingType, setBuildingType] = useState(building.buildingType ?? BUILDING_TYPES[0].value);
   const [floors, setFloors] = useState(building.floors ?? 1);
   const [description, setDescription] = useState(building.description ?? '');
+  const [photos, setPhotos] = useState<string[]>((building.photos ?? []).filter(isImageRef));
 
   const submit = () => {
     if (!name.trim()) {
@@ -313,6 +326,7 @@ export function EditBuildingModal({ building, onClose }: { building: BuildingT; 
         buildingType,
         floors: Number(floors) || 1,
         description: description.trim() || undefined,
+        photos,
       }),
     );
     dispatch(pushToast({ id: uid('t'), kind: 'success', message: 'Building updated.' }));
@@ -354,6 +368,9 @@ export function EditBuildingModal({ building, onClose }: { building: BuildingT; 
         <Field label="Description">
           <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} />
         </Field>
+        <Field label="Interior photos">
+          <PhotoPicker value={photos} onChange={setPhotos} hint="Rooms, hallways, finishes — JPG, PNG or WebP · the first is the cover" />
+        </Field>
       </div>
     </Modal>
   );
@@ -379,11 +396,18 @@ export function EditPropertyModal({ property, onClose }: { property: Property; o
     taxReference: property.taxReference ?? '',
     description: property.description ?? '',
   });
+  // Only real images are editable here; the demo data's colour-hint placeholders are kept as-is.
+  const colourHints = (property.photos ?? []).filter((p) => !isImageRef(p));
+  const [photos, setPhotos] = useState<string[]>((property.photos ?? []).filter(isImageRef));
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) => setForm((f) => ({ ...f, [k]: v }));
 
   const submit = () => {
     if (!form.name.trim()) {
       dispatch(pushToast({ id: uid('t'), kind: 'error', message: 'Property name is required.' }));
+      return;
+    }
+    if (!form.country || !form.state.trim() || !form.city.trim()) {
+      dispatch(pushToast({ id: uid('t'), kind: 'error', message: 'Select the property’s country, state and city.' }));
       return;
     }
     dispatch(
@@ -404,6 +428,7 @@ export function EditPropertyModal({ property, onClose }: { property: Property; o
         insuranceExpiry: form.insuranceExpiry || undefined,
         taxReference: form.taxReference.trim() || undefined,
         description: form.description.trim() || undefined,
+        photos: photos.length ? photos : colourHints,
       }),
     );
     dispatch(pushToast({ id: uid('t'), kind: 'success', message: 'Property updated.' }));
@@ -440,9 +465,7 @@ export function EditPropertyModal({ property, onClose }: { property: Property; o
         <Field label="Address" className="sm:col-span-2">
           <Input value={form.address} onChange={(e) => set('address', e.target.value)} placeholder="Street address" />
         </Field>
-        <Field label="City"><Input value={form.city} onChange={(e) => set('city', e.target.value)} /></Field>
-        <Field label="State"><Input value={form.state} onChange={(e) => set('state', e.target.value)} /></Field>
-        <Field label="Country"><Input value={form.country} onChange={(e) => set('country', e.target.value)} /></Field>
+        <LocationFields value={{ country: form.country, state: form.state, city: form.city }} onChange={(l) => setForm((f) => ({ ...f, ...l }))} />
         <Field label="Year built"><Input type="number" value={form.yearBuilt} onChange={(e) => set('yearBuilt', Number(e.target.value))} /></Field>
         <Field label="Land size (m²)"><Input type="number" min={0} value={form.landSizeSqm} onChange={(e) => set('landSizeSqm', Number(e.target.value))} /></Field>
         <Field label="Built-up area (m²)"><Input type="number" min={0} value={form.builtUpAreaSqm} onChange={(e) => set('builtUpAreaSqm', Number(e.target.value))} /></Field>
@@ -452,6 +475,9 @@ export function EditPropertyModal({ property, onClose }: { property: Property; o
         <Field label="Tax reference"><Input value={form.taxReference} onChange={(e) => set('taxReference', e.target.value)} /></Field>
         <Field label="Description" className="sm:col-span-2">
           <Textarea value={form.description} onChange={(e) => set('description', e.target.value)} placeholder="Short description of the property" />
+        </Field>
+        <Field label="Photos" className="sm:col-span-2">
+          <PhotoPicker value={photos} onChange={setPhotos} />
         </Field>
       </div>
     </Modal>
@@ -481,6 +507,7 @@ export function EditUnitModal({ unit, onClose }: { unit: UnitT; onClose: () => v
   const [securityDeposit, setSecurityDeposit] = useState(unit.securityDeposit ?? 0);
   const [utilityCharge, setUtilityCharge] = useState(unit.utilityCharge ?? 0);
   const [otherCharges, setOtherCharges] = useState(unit.otherCharges ?? 0);
+  const [photos, setPhotos] = useState<string[]>((unit.photos ?? []).filter(isImageRef));
 
   const num = (set: (n: number) => void) => (e: React.ChangeEvent<HTMLInputElement>) =>
     set(Number(e.target.value));
@@ -508,6 +535,7 @@ export function EditUnitModal({ unit, onClose }: { unit: UnitT; onClose: () => v
         securityDeposit: Number(securityDeposit) || 0,
         utilityCharge: Number(utilityCharge) || 0,
         otherCharges: Number(otherCharges) || 0,
+        photos,
       }),
     );
     dispatch(pushToast({ id: uid('t'), kind: 'success', message: 'Unit updated.' }));
@@ -583,6 +611,10 @@ export function EditUnitModal({ unit, onClose }: { unit: UnitT; onClose: () => v
           <Field label="Utility charge"><Input type="number" min={0} value={utilityCharge} onChange={num(setUtilityCharge)} /></Field>
           <Field label="Other charges"><Input type="number" min={0} value={otherCharges} onChange={num(setOtherCharges)} /></Field>
         </div>
+
+        <Field label="Photos">
+          <PhotoPicker value={photos} onChange={setPhotos} hint="Rooms, finishes, views — JPG, PNG or WebP · the first is the cover" />
+        </Field>
       </div>
     </Modal>
   );

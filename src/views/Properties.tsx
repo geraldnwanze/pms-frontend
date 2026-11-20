@@ -10,10 +10,11 @@ import { dataActions } from '@/store/dataSlice';
 import { pushToast } from '@/store/uiSlice';
 import {
   PageHeader, Card, Badge, StatusBadge, Money, ProgressBar, Chip, ExportMenu, EmptyState,
-  DataTable, type Column, Modal, Field, Input, Select, Textarea,
+  DataTable, type Column, Modal, Field, Input, Select, Textarea, PhotoPicker, LocationFields,
 } from '@/components/ui';
 import { propertyStatusMeta } from '@/lib/status';
-import { canManageStructure } from '@/config/roles';
+import { coverImage } from '@/lib/media';
+import { canRegisterProperty } from '@/config/roles';
 import { formatPercent, classNames, uid } from '@/lib/format';
 import type { PropertyPerformance } from '@/store/selectors';
 
@@ -60,7 +61,7 @@ export function Properties() {
     City: p.property.city,
     Units: p.units,
     Occupancy: formatPercent(p.occupancyRate),
-    'Monthly Rent': p.monthlyExpectedRent,
+    'Annual Rent Roll': p.annualRentRoll,
     Collected: p.collected,
     Outstanding: p.outstanding,
   }));
@@ -68,7 +69,12 @@ export function Properties() {
   const columns: Column<PropertyPerformance>[] = [
     { key: 'name', header: 'Property', sortValue: (r) => r.property.name, render: (r) => (
       <div className="flex items-center gap-2.5">
-        <span className={classNames('flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br text-white', gradientFor(r.property.id))}><Building2 className="h-4 w-4" /></span>
+        {coverImage(r.property.photos) ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={coverImage(r.property.photos)} alt="" className="h-9 w-9 rounded-lg object-cover" />
+        ) : (
+          <span className={classNames('flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br text-white', gradientFor(r.property.id))}><Building2 className="h-4 w-4" /></span>
+        )}
         <div><p className="font-semibold text-ink-800">{r.property.name}</p><p className="text-xs text-ink-500">{r.property.code}</p></div>
       </div>
     ) },
@@ -90,7 +96,7 @@ export function Properties() {
         actions={
           <>
             <ExportMenu filename="properties" title="Properties" rows={exportRows} size="md" />
-            {canManageStructure(user?.role) && (
+            {canRegisterProperty(user?.role) && (
               <button className="btn-primary" onClick={() => setCreating(true)}><Plus className="h-4 w-4" /> Register property</button>
             )}
           </>
@@ -120,8 +126,16 @@ export function Properties() {
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {perf.map((p) => (
             <button key={p.property.id} onClick={() => navigate(`/properties/${p.property.id}`)} className="card group overflow-hidden p-0 text-left transition-all hover:-translate-y-0.5 hover:shadow-card-hover">
-              <div className={classNames('relative h-28 bg-gradient-to-br', gradientFor(p.property.id))}>
-                <div className="absolute inset-0 flex items-center justify-center opacity-30"><Building2 className="h-14 w-14 text-white" /></div>
+              <div className={classNames('relative h-28 overflow-hidden bg-gradient-to-br', gradientFor(p.property.id))}>
+                {coverImage(p.property.photos) ? (
+                  <>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={coverImage(p.property.photos)} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-black/10" />
+                  </>
+                ) : (
+                  <div className="absolute inset-0 flex items-center justify-center opacity-30"><Building2 className="h-14 w-14 text-white" /></div>
+                )}
                 <div className="absolute right-3 top-3"><StatusBadge meta={propertyStatusMeta(p.property.status)} /></div>
                 <div className="absolute bottom-3 left-4 text-white"><p className="text-xs font-medium opacity-90">{p.property.code}</p></div>
               </div>
@@ -138,7 +152,7 @@ export function Properties() {
                 </div>
                 <ProgressBar value={p.occupancyRate} className="mt-1.5" tone={p.occupancyRate >= 80 ? 'green' : p.occupancyRate >= 50 ? 'amber' : 'red'} />
                 <div className="mt-3 grid grid-cols-2 gap-2 border-t border-ink-100 pt-3">
-                  <div><p className="text-[11px] uppercase tracking-wide text-ink-400">Rent / mo</p><Money value={p.monthlyExpectedRent} compact className="text-sm font-bold text-ink-800" /></div>
+                  <div><p className="text-[11px] uppercase tracking-wide text-ink-400">Rent roll / yr</p><Money value={p.annualRentRoll} compact className="text-sm font-bold text-ink-800" /></div>
                   <div><p className="text-[11px] uppercase tracking-wide text-ink-400">Outstanding</p><Money value={p.outstanding} compact className={classNames('text-sm font-bold', p.outstanding > 0 ? 'text-amber-600' : 'text-ink-800')} /></div>
                 </div>
                 <p className="mt-3 truncate text-xs text-ink-400">Owner: {ownerName(p.property.owners)}</p>
@@ -172,12 +186,14 @@ function CreatePropertyModal({ onClose }: { onClose: () => void }) {
 
   const [form, setForm] = useState({
     name: '', type: 'residential' as PropertyType, status: 'active' as PropertyStatus,
-    address: '', city: 'Lagos', state: 'Lagos', country: 'Nigeria', yearBuilt: 2018, description: '',
+    address: '', city: '', state: '', country: 'Nigeria', yearBuilt: 2018, description: '',
   });
+  const [photos, setPhotos] = useState<string[]>([]);
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) => setForm((f) => ({ ...f, [k]: v }));
 
   const submit = () => {
     if (!form.name.trim()) { dispatch(pushToast({ id: uid('t'), kind: 'error', message: 'Property name is required.' })); return; }
+    if (!form.country || !form.state.trim() || !form.city.trim()) { dispatch(pushToast({ id: uid('t'), kind: 'error', message: 'Select the property’s country, state and city.' })); return; }
     // The API assigns the creator as the sole owner and generates the code.
     const action = dispatch(dataActions.createProperty({
       name: form.name.trim(), type: form.type, status: form.status,
@@ -185,7 +201,7 @@ function CreatePropertyModal({ onClose }: { onClose: () => void }) {
       address: form.address || `${form.city}, ${form.state}`,
       city: form.city, state: form.state, country: form.country, lat: 0, lng: 0,
       description: form.description, landSizeSqm: 0, builtUpAreaSqm: 0, yearBuilt: Number(form.yearBuilt),
-      amenities: [], photos: ['#059669'],
+      amenities: [], photos: photos.length ? photos : ['#059669'],
     }));
     dispatch(pushToast({ id: uid('t'), kind: 'success', message: `${form.name} registered — you're its owner.` }));
     onClose();
@@ -201,11 +217,10 @@ function CreatePropertyModal({ onClose }: { onClose: () => void }) {
         <Field label="Type"><Select value={form.type} onChange={(e) => set('type', e.target.value as PropertyType)} className="capitalize">{TYPES.map((t) => <option key={t} value={t}>{t}</option>)}</Select></Field>
         <Field label="Status"><Select value={form.status} onChange={(e) => set('status', e.target.value as PropertyStatus)}>{STATUSES.map((s) => <option key={s} value={s}>{propertyStatusMeta(s).label}</option>)}</Select></Field>
         <Field label="Address" className="sm:col-span-2"><Input value={form.address} onChange={(e) => set('address', e.target.value)} placeholder="Street address" /></Field>
-        <Field label="City"><Input value={form.city} onChange={(e) => set('city', e.target.value)} /></Field>
-        <Field label="State"><Input value={form.state} onChange={(e) => set('state', e.target.value)} /></Field>
-        <Field label="Country"><Input value={form.country} onChange={(e) => set('country', e.target.value)} /></Field>
+        <LocationFields value={{ country: form.country, state: form.state, city: form.city }} onChange={(l) => setForm((f) => ({ ...f, ...l }))} />
         <Field label="Year built"><Input type="number" value={form.yearBuilt} onChange={(e) => set('yearBuilt', Number(e.target.value))} /></Field>
         <Field label="Description" className="sm:col-span-2"><Textarea value={form.description} onChange={(e) => set('description', e.target.value)} placeholder="Short description of the property" /></Field>
+        <Field label="Photos" className="sm:col-span-2"><PhotoPicker value={photos} onChange={setPhotos} /></Field>
       </div>
     </Modal>
   );

@@ -16,6 +16,7 @@ import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import {
   selectData, selectCurrentUser, scopedPropertyIds, computeKpis, propertyPerformance,
   selectNotificationsForCurrentUser, selectDashboard,
+  isOverdue, isLeaseExpiring,
 } from '@/store/selectors';
 import { fetchDashboard } from '@/store/thunks';
 import { StatCard, SectionCard, PageHeader, Money, ProgressBar, StatusBadge, Badge, EmptyState } from '@/components/ui';
@@ -23,7 +24,7 @@ import {
   invoiceStatusMeta, leaseStatusMeta, maintenanceStatusMeta, urgencyMeta, leadStatusMeta, expenseStatusMeta,
   payoutStatusMeta,
 } from '@/lib/status';
-import { formatCurrency, formatPercent, formatDate, daysUntil, classNames, TODAY } from '@/lib/format';
+import { formatCurrency, formatPercent, formatDate, daysUntil, classNames, today } from '@/lib/format';
 import { ROLE_LABELS } from '@/config/roles';
 import type { DashboardData, DashboardKpis, DashboardPersona, Role } from '@/types';
 
@@ -97,7 +98,7 @@ function DashHeader() {
         <span className="flex items-center gap-2">
           <Badge tone="green" dot>{ROLE_LABELS[user?.role ?? 'admin']}</Badge>
           <span className="text-ink-400">·</span>
-          <span>{formatDate(TODAY)}</span>
+          <span>{formatDate(today())}</span>
           {unread > 0 && (
             <>
               <span className="text-ink-400">·</span>
@@ -330,9 +331,9 @@ function PortfolioDashboard({ dash }: { dash: DashboardData | null }) {
     () => data.payments.filter((p) => ids.has(p.propertyId) && p.status === 'pending-verification'),
     [data.payments, ids],
   );
-  const overdueInvoices = useMemo(() => scopedInvoices.filter((i) => i.status === 'overdue'), [scopedInvoices]);
+  const overdueInvoices = useMemo(() => scopedInvoices.filter(isOverdue), [scopedInvoices]);
   const expiringLeases = useMemo(
-    () => data.leases.filter((l) => ids.has(l.propertyId) && l.status === 'expiring').sort((a, b) => a.endDate.localeCompare(b.endDate)),
+    () => data.leases.filter((l) => ids.has(l.propertyId) && isLeaseExpiring(l)).sort((a, b) => a.endDate.localeCompare(b.endDate)),
     [data.leases, ids],
   );
 
@@ -345,7 +346,7 @@ function PortfolioDashboard({ dash }: { dash: DashboardData | null }) {
           hint={`${kpis.totalUnits} units · ${kpis.totalBuildings} buildings`} onClick={() => navigate('/properties')} />
         <StatCard label="Occupancy" value={formatPercent(kpis.occupancyRate)} icon={<DoorOpen className="h-5 w-5" />} tone="blue"
           hint={`${kpis.occupied} occupied · ${kpis.vacant} vacant`} onClick={() => navigate('/units')} />
-        <StatCard label="Expected / month" value={formatCurrency(kpis.monthlyExpectedRent, { compact: true })} icon={<Banknote className="h-5 w-5" />} tone="indigo" hint="Contracted rent roll" />
+        <StatCard label="Annual rent roll" value={formatCurrency(kpis.annualRentRoll, { compact: true })} icon={<Banknote className="h-5 w-5" />} tone="indigo" hint="Contracted rent, occupied units" />
         <StatCard label="Collected" value={formatCurrency(kpis.collected, { compact: true })} icon={<TrendingUp className="h-5 w-5" />} tone="green"
           hint={`${formatPercent(kpis.collectionRate)} of billed`} onClick={() => navigate('/payments')} />
       </KpiGrid>

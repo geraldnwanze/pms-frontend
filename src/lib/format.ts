@@ -3,13 +3,15 @@ import dayjs from 'dayjs';
 // ---- Currency (Nigerian Naira per the spec examples) -----------------------
 
 export function formatCurrency(amount: number, opts?: { compact?: boolean }): string {
+  // The sign goes in front of the symbol: -₦350,000, not ₦-350,000.
+  const sign = Math.round(amount) < 0 || (opts?.compact && amount < 0) ? '-' : '';
+  const abs = Math.abs(amount);
   if (opts?.compact) {
-    const abs = Math.abs(amount);
-    if (abs >= 1_000_000_000) return `₦${(amount / 1_000_000_000).toFixed(1)}B`;
-    if (abs >= 1_000_000) return `₦${(amount / 1_000_000).toFixed(1)}M`;
-    if (abs >= 1_000) return `₦${(amount / 1_000).toFixed(0)}K`;
+    if (abs >= 1_000_000_000) return `${sign}₦${(abs / 1_000_000_000).toFixed(1)}B`;
+    if (abs >= 1_000_000) return `${sign}₦${(abs / 1_000_000).toFixed(1)}M`;
+    if (abs >= 1_000) return `${sign}₦${(abs / 1_000).toFixed(0)}K`;
   }
-  return `₦${Math.round(amount).toLocaleString('en-NG')}`;
+  return `${sign}₦${Math.round(abs).toLocaleString('en-NG')}`;
 }
 
 export function formatNumber(n: number): string {
@@ -22,7 +24,13 @@ export function formatPercent(n: number, digits = 0): string {
 
 // ---- Dates -----------------------------------------------------------------
 
-export const TODAY = '2026-08-25'; // fixed "today" so seeded data is deterministic
+/** The fixed "today" the deterministic demo dataset (src/data/seed.ts) is generated against. Never use at runtime. */
+export const SEED_TODAY = '2026-08-25';
+
+/** Today's date (local) as YYYY-MM-DD. A function, not a constant, so it can't go stale in a tab left open past midnight. */
+export function today(): string {
+  return dayjs().format('YYYY-MM-DD');
+}
 
 export function formatDate(date?: string): string {
   if (!date) return '—';
@@ -37,7 +45,7 @@ export function formatDateTime(date?: string): string {
 export function fromNow(date?: string): string {
   if (!date) return '—';
   const d = dayjs(date);
-  const now = dayjs(TODAY);
+  const now = dayjs(today());
   const days = now.diff(d, 'day');
   if (days === 0) return 'Today';
   if (days === 1) return 'Yesterday';
@@ -53,11 +61,11 @@ export function daysBetween(a: string, b: string): number {
 }
 
 export function daysUntil(date: string): number {
-  return dayjs(date).diff(dayjs(TODAY), 'day');
+  return dayjs(date).diff(dayjs(today()), 'day');
 }
 
 export function daysOverdue(dueDate: string): number {
-  const d = dayjs(TODAY).diff(dayjs(dueDate), 'day');
+  const d = dayjs(today()).diff(dayjs(dueDate), 'day');
   return d > 0 ? d : 0;
 }
 

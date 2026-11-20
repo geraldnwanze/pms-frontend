@@ -15,7 +15,7 @@ import {
 } from '@/components/ui';
 import { expenseStatusMeta } from '@/lib/status';
 import { can } from '@/config/roles';
-import { formatDate, TODAY, uid, classNames } from '@/lib/format';
+import { formatDate, today, uid, classNames } from '@/lib/format';
 import type { Expense, ExpenseCategory, ExpenseStatus, Vendor } from '@/types';
 
 const CATEGORIES: ExpenseCategory[] = ['repairs', 'security', 'cleaning', 'utilities', 'fuel', 'insurance', 'tax', 'staff', 'management-fee', 'other'];
@@ -113,7 +113,7 @@ function RecordExpenseModal({ onClose }: { onClose: () => void }) {
   const [vendorId, setVendorId] = useState('');
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState(0);
-  const [date, setDate] = useState(TODAY);
+  const [date, setDate] = useState(today());
   const [receipt, setReceipt] = useState<UploadedFile | null>(null);
 
   const submit = () => {

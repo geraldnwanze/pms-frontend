@@ -10,6 +10,7 @@ import { api, ApiError } from '@/lib/api';
 import { PageHeader, Card } from '@/components/ui';
 
 type Phase = 'verifying' | 'approved' | 'failed';
+type Kind = 'payment' | 'card';
 
 /**
  * Landing page Paystack redirects the tenant back to. Confirms the transaction
@@ -22,6 +23,7 @@ export function PortalPayCallback() {
   const reference = params.get('reference') ?? params.get('trxref') ?? '';
   const [phase, setPhase] = useState<Phase>('verifying');
   const [message, setMessage] = useState('Confirming your payment with Paystack…');
+  const [kind, setKind] = useState<Kind>('payment');
   const ran = useRef(false);
 
   useEffect(() => {
@@ -37,6 +39,20 @@ export function PortalPayCallback() {
     (async () => {
       try {
         const res = await api.paystackVerify(reference);
+
+        // A card-setup checkout for auto-debit rather than an invoice payment.
+        if (res.autoDebit) {
+          setKind('card');
+          if (res.autoDebit.status === 'approved') {
+            setPhase('approved');
+            setMessage(`Auto-debit is on${res.autoDebit.card ? ` — ${res.autoDebit.card.label} will be charged on each due date` : ''}. The ₦50 check is being refunded.`);
+          } else {
+            setPhase('failed');
+            setMessage(res.autoDebit.message || 'We couldn’t save that card.');
+          }
+          return;
+        }
+
         if (res.status === 'approved') {
           setPhase('approved');
           setMessage('Payment received — your balance has been updated.');
@@ -62,15 +78,21 @@ export function PortalPayCallback() {
 
         <div>
           <p className="text-lg font-bold text-ink-900">
-            {phase === 'verifying' ? 'Verifying…' : phase === 'approved' ? 'Payment successful' : 'Payment not completed'}
+            {phase === 'verifying' ? 'Verifying…' : phase === 'approved' ? (kind === 'card' ? 'Auto-debit is on' : 'Payment successful') : (kind === 'card' ? 'Card not saved' : 'Payment not completed')}
           </p>
           <p className="mt-1 max-w-sm text-sm text-ink-500">{message}</p>
         </div>
 
         {phase !== 'verifying' && (
           <div className="mt-2 flex flex-wrap justify-center gap-2">
-            <button className="btn-primary" onClick={() => navigate('/portal/payments')}>View payment history</button>
-            <button className="btn-secondary" onClick={() => navigate('/portal/bills')}>Back to bills</button>
+            {kind === 'card' ? (
+              <button className="btn-primary" onClick={() => navigate('/portal/pay')}>Back to payments</button>
+            ) : (
+              <>
+                <button className="btn-primary" onClick={() => navigate('/portal/payments')}>View payment history</button>
+                <button className="btn-secondary" onClick={() => navigate('/portal/bills')}>Back to bills</button>
+              </>
+            )}
           </div>
         )}
       </Card>

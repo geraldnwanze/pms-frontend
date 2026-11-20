@@ -7,7 +7,7 @@ import { useAppSelector } from '@/store/hooks';
 import { selectData, scopedPropertyIds } from '@/store/selectors';
 import { selectCurrentUser } from '@/store/selectors';
 import {
-  PageHeader, Card, StatCard, EmptyState, ExportMenu, Badge,
+  PageHeader, Card, StatCard, EmptyState, ExportMenu, Badge, PhotoStrip,
 } from '@/components/ui';
 import { AddBuildingModal, EditBuildingModal } from '@/components/StructureModals';
 import { canManageStructure } from '@/config/roles';
@@ -77,6 +77,7 @@ export function Buildings() {
                 </div>
                 {buildingTypeLabel(b.buildingType) && <Badge tone="indigo" className="mt-3">{buildingTypeLabel(b.buildingType)}</Badge>}
                 {b.description && <p className="mt-3 line-clamp-2 text-sm text-ink-500">{b.description}</p>}
+                <PhotoStrip photos={b.photos} max={3} label={`${b.name} interior`} className="mt-3" />
                 <div className="mt-4 grid grid-cols-3 gap-2 border-t border-ink-100 pt-3 text-center">
                   <div><p className="text-lg font-bold text-ink-800">{b.floors}</p><p className="text-[11px] uppercase tracking-wide text-ink-400">Floors</p></div>
                   <div><p className="text-lg font-bold text-ink-800">{units.length}</p><p className="text-[11px] uppercase tracking-wide text-ink-400">Units</p></div>

@@ -11,6 +11,7 @@ import {
 import { AddUnitModal, EditUnitModal } from '@/components/StructureModals';
 import { canManageStructure } from '@/config/roles';
 import { unitStatusMeta } from '@/lib/status';
+import { coverImage } from '@/lib/media';
 import { classNames } from '@/lib/format';
 import type { Unit, UnitStatus } from '@/types';
 
@@ -54,7 +55,15 @@ export function Units() {
   }));
 
   const columns: Column<Unit>[] = [
-    { key: 'code', header: 'Unit', sortValue: (u) => u.code, render: (u) => <div><p className="font-semibold text-ink-800">Unit {u.code}</p><p className="text-xs text-ink-400">{u.type}</p></div> },
+    { key: 'code', header: 'Unit', sortValue: (u) => u.code, render: (u) => (
+      <div className="flex items-center gap-2.5">
+        {coverImage(u.photos) && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={coverImage(u.photos)} alt="" className="h-9 w-9 rounded-md object-cover ring-1 ring-ink-200" />
+        )}
+        <div><p className="font-semibold text-ink-800">Unit {u.code}</p><p className="text-xs text-ink-400">{u.type}</p></div>
+      </div>
+    ) },
     { key: 'loc', header: 'Location', sortValue: (u) => propName(u.propertyId), render: (u) => <div><p className="text-sm text-ink-700">{propName(u.propertyId)}</p><p className="text-xs text-ink-400">{buildingName(u.buildingId)} · Floor {u.floor}</p></div> },
     { key: 'spec', header: 'Spec', render: (u) => <span className="text-sm text-ink-500">{u.bedrooms} bd · {u.bathrooms} ba · {u.sizeSqm}m²</span> },
     { key: 'tenant', header: 'Tenant', sortValue: (u) => tenantForUnit(u) ?? 'z', render: (u) => { const t = tenantForUnit(u); return t ? <span className="text-ink-600">{t}</span> : <span className="text-ink-300">Vacant</span>; } },

@@ -13,6 +13,7 @@ import dayjs from 'dayjs';
 import { useAppSelector } from '@/store/hooks';
 import {
   selectData, selectCurrentUser, scopedPropertyIds, computeKpis, propertyPerformance,
+  isOverdue,
 } from '@/store/selectors';
 import { PageHeader, SectionCard, StatCard, Badge, EmptyState, ExportMenu } from '@/components/ui';
 import { can } from '@/config/roles';
@@ -68,7 +69,7 @@ export function Reports() {
         Start: formatDate(l.startDate), End: formatDate(l.endDate), Rent: fmt(l.rent), Cycle: tc(l.billingCycle), Status: tc(l.status),
       }))
       .sort((a, b) => String(a.Property).localeCompare(String(b.Property)));
-    const monthlyExpected = units.filter((u) => u.status === 'occupied').reduce((s, u) => s + u.rent, 0);
+    const annualRentRoll = units.filter((u) => u.status === 'occupied').reduce((s, u) => s + u.rent, 0);
 
     // Arrears — invoices with an outstanding balance
     const arrearsInv = invoices.filter((i) => i.total - i.amountPaid > 0).sort((a, b) => (b.total - b.amountPaid) - (a.total - a.amountPaid));
@@ -78,7 +79,7 @@ export function Reports() {
       Days_Overdue: daysOverdue(i.dueDate), Status: tc(i.status),
     }));
     const totalOutstanding = arrearsInv.reduce((s, i) => s + (i.total - i.amountPaid), 0);
-    const overdueInv = arrearsInv.filter((i) => i.status === 'overdue');
+    const overdueInv = arrearsInv.filter(isOverdue);
     const totalOverdue = overdueInv.reduce((s, i) => s + (i.total - i.amountPaid), 0);
 
     // Collections — approved payments
@@ -147,7 +148,7 @@ export function Reports() {
       'rent-roll': { rows: rentRoll, summary: [
         { label: 'Active leases', value: String(activeLeases.length) },
         { label: 'Occupied units', value: String(units.filter((u) => u.status === 'occupied').length) },
-        { label: 'Monthly rent roll', value: fmt(monthlyExpected) },
+        { label: 'Annual rent roll', value: fmt(annualRentRoll) },
         { label: 'Properties', value: String(props.length) },
       ] },
       arrears: { rows: arrears, summary: [

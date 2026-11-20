@@ -10,7 +10,7 @@ import { useAppSelector } from '@/store/hooks';
 import { selectData, selectCurrentUser, selectMemberships, unitContext, invoiceOutstanding } from '@/store/selectors';
 import {
   PageHeader, Breadcrumbs, Card, SectionCard, StatCard, Badge, StatusBadge, Money, KeyValue,
-  EmptyState, DataTable, type Column,
+  EmptyState, DataTable, type Column, PhotoGallery,
 } from '@/components/ui';
 import { RecordPaymentModal } from '@/components/RecordPaymentModal';
 import { EditUnitModal } from '@/components/StructureModals';
@@ -83,6 +83,8 @@ export function UnitDetail() {
           {can(user?.role, 'manage_payments') && lease && <button className="btn-primary" onClick={() => setPaying(true)}><Plus className="h-4 w-4" /> Record payment</button>}
         </>}
       />
+
+      <PhotoGallery photos={unit.photos} name={`Unit ${unit.code}`} className="mb-5" />
 
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="Rent / year" value={<Money value={unit.rent} compact />} icon={<Wallet className="h-5 w-5" />} tone="green" />

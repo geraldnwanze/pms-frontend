@@ -1,7 +1,7 @@
 import type { Middleware } from '@reduxjs/toolkit';
 import { api, ApiError } from '@/lib/api';
-import { bootstrap, signOut } from './thunks';
-import { pushToast } from './uiSlice';
+import { announceSessionEnded, bootstrap, signOut } from './thunks';
+import { dismissToast, pushToast } from './uiSlice';
 import { uid } from '@/lib/format';
 
 /**
@@ -62,6 +62,10 @@ const ROUTES: Record<string, (p: Payload) => Req | null> = {
   requestPaymentInfo: (p) => ({ method: 'POST', path: `/payments/${p.paymentId}/request-info`, body: { note: p.note } }),
   refundPayment: (p) => ({ method: 'POST', path: `/payments/${p.paymentId}/refund`, body: { reason: p.reason } }),
   cancelInvoice: (p) => ({ method: 'POST', path: `/invoices/${p.invoiceId}/cancel` }),
+  waiveLateFee: (p) => ({ method: 'POST', path: `/invoices/${p.invoiceId}/waive-late-fee`, body: { reason: p.reason } }),
+  billMeter: (p) => ({ method: 'POST', path: `/meters/${p.meterId}/bill` }),
+  receiveDeposit: (p) => ({ method: 'POST', path: `/leases/${p.leaseId}/deposit/receive`, body: { amount: p.amount, method: p.method, reference: p.reference, date: p.date } }),
+  settleDeposit: (p) => ({ method: 'POST', path: `/leases/${p.leaseId}/deposit/settle`, body: { deductions: p.deductions, applyToArrears: p.applyToArrears } }),
   renewLease: (p) => ({ method: 'POST', path: `/leases/${p.leaseId}/renew`, body: { endDate: p.newEndDate } }),
   terminateLease: (p) => ({ method: 'POST', path: `/leases/${p.leaseId}/terminate` }),
   setExpenseStatus: (p) => ({ method: 'POST', path: `/expenses/${p.id}/status`, body: { status: p.status } }),
@@ -83,6 +87,18 @@ const REFRESH_DEBOUNCE_MS = 700;
 
 export const apiMiddleware: Middleware = (store) => {
   let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // Writes to one meter go to the server one after another: logging a reading and then billing it must arrive in that order.
+  const meterQueues = new Map<string, Promise<unknown>>();
+  const send = (req: Req) => {
+    const meter = /^\/meters\/([^/]+)/.exec(req.path)?.[1];
+    if (!meter) return api.request(req.method, req.path, req.body);
+    const run = (meterQueues.get(meter) ?? Promise.resolve()).then(() => api.request(req.method, req.path, req.body));
+    const tail = run.catch(() => undefined);
+    meterQueues.set(meter, tail);
+    void tail.then(() => { if (meterQueues.get(meter) === tail) meterQueues.delete(meter); });
+    return run;
+  };
 
   const scheduleRefresh = () => {
     if (refreshTimer) clearTimeout(refreshTimer);
@@ -108,12 +124,23 @@ export const apiMiddleware: Middleware = (store) => {
     const req = build((action as { payload?: unknown }).payload);
     if (!req) return result;
 
-    api
-      .request(req.method, req.path, req.body)
+    // The views raise their "…saved" toast the moment they dispatch, before the server has answered. Remember
+    // which success toasts appeared with this action so a rejected write can take them back instead of
+    // showing "saved" and "couldn't save" side by side.
+    const before = new Set(store.getState().ui?.toasts?.map((t: { id: string }) => t.id) ?? []);
+    const optimisticToasts = new Set<string>();
+    setTimeout(() => {
+      for (const t of store.getState().ui?.toasts ?? []) {
+        if (t.kind === 'success' && !before.has(t.id)) optimisticToasts.add(t.id);
+      }
+    }, 0);
+
+    send(req)
       .then(() => scheduleRefresh())
       .catch((err: unknown) => {
         if (err instanceof ApiError && err.status === 401) {
           (store.dispatch as any)(signOut());
+          announceSessionEnded(store.dispatch as never, store.getState as never, err);
           return;
         }
         const detail =
@@ -122,6 +149,7 @@ export const apiMiddleware: Middleware = (store) => {
               ? Object.values(err.errors).flat()[0] ?? err.message
               : err.message
             : 'The change could not be saved.';
+        optimisticToasts.forEach((id) => store.dispatch(dismissToast(id)));
         toast('error', `Couldn’t save: ${detail}`);
         (store.dispatch as any)(bootstrap()); // roll back to server state
       });

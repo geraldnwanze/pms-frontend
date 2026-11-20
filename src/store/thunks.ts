@@ -4,6 +4,7 @@ import { login, logout, dataReady } from './authSlice';
 import { pushToast } from './uiSlice';
 import { api, ApiError, setAuthToken, type RegisterInput } from '@/lib/api';
 import { uid } from '@/lib/format';
+import { sessionEndedMessage } from '@/lib/session';
 import type { SeedData } from '@/data/seed';
 import type { Role, User } from '@/types';
 
@@ -11,6 +12,12 @@ type Thunk<R = void> = (dispatch: AppDispatch, getState: () => RootState) => Pro
 
 function toast(dispatch: AppDispatch, kind: 'success' | 'error' | 'info', message: string) {
   dispatch(pushToast({ id: uid('t'), kind, message }));
+}
+
+/** Say why the user is back at the sign-in page — once, however many requests failed together. */
+export function announceSessionEnded(dispatch: AppDispatch, getState: () => RootState, err: ApiError): void {
+  const message = sessionEndedMessage(err);
+  if (!getState().ui.toasts.some((t) => t.message === message)) toast(dispatch, 'info', message);
 }
 
 /** Pull the full (RBAC-scoped) dataset from the v1 API into the store. */
@@ -34,6 +41,7 @@ export function bootstrap(): Thunk<boolean> {
         setAuthToken(null);
         dispatch(logout());
         dispatch(dataActions.resetData());
+        announceSessionEnded(dispatch, getState, err);
         return false;
       }
       const message = err instanceof ApiError ? err.message : 'Failed to load data from the server.';

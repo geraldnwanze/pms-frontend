@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Wallet, Zap } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { selectData, selectCurrentUser, selectIntegrations, invoiceOutstanding, openPaymentForInvoice } from '@/store/selectors';
@@ -10,7 +10,7 @@ import { api, ApiError } from '@/lib/api';
 import { Modal, Field, Input, Select, Textarea, Money, Badge } from '@/components/ui';
 import { FileDrop, type UploadedFile } from '@/components/ui/form';
 import { invoiceStatusMeta } from '@/lib/status';
-import { formatDate, TODAY, uid } from '@/lib/format';
+import { formatDate, today, uid } from '@/lib/format';
 import type { PaymentType, PaymentMethod, Invoice } from '@/types';
 
 const TYPES: PaymentType[] = ['rent', 'partial-rent', 'security-deposit', 'service-charge', 'utility', 'maintenance', 'application-fee', 'other'];
@@ -53,7 +53,7 @@ export function RecordPaymentModal({
   const [amount, setAmount] = useState(invoice ? invoiceOutstanding(invoice) : 0);
   const [type, setType] = useState<PaymentType>('rent');
   const [method, setMethod] = useState<PaymentMethod>('bank-transfer');
-  const [paymentDate, setPaymentDate] = useState(TODAY);
+  const [paymentDate, setPaymentDate] = useState(today());
   const [bankName, setBankName] = useState('');
   const [reference, setReference] = useState('');
   const [payerName, setPayerName] = useState('');
@@ -76,6 +76,14 @@ export function RecordPaymentModal({
 
   const openPayment = invoice ? openPaymentForInvoice(data, invoice.id) : undefined;
 
+  // Offer to keep the card for auto-debit — only when it isn't already on.
+  const [saveCard, setSaveCard] = useState(false);
+  const [autoDebitOff, setAutoDebitOff] = useState(false);
+  useEffect(() => {
+    if (user?.role !== 'tenant' || !integrations?.paystack?.configured) return;
+    api.autoDebitStatus().then((st) => setAutoDebitOff(st.available && !st.enabled)).catch(() => setAutoDebitOff(false));
+  }, [user?.role, integrations?.paystack?.configured]);
+
   const canPayOnline =
     user?.role === 'tenant' &&
     Boolean(integrations?.paystack?.configured) &&
@@ -90,6 +98,7 @@ export function RecordPaymentModal({
       const { authorizationUrl } = await api.paystackInitialize({
         invoiceId: invoice.id,
         amount: Math.round(Number(amount)),
+        saveCard: saveCard && autoDebitOff,
       });
       window.location.href = authorizationUrl; // redirect to Paystack hosted checkout
     } catch (err) {
@@ -164,7 +173,7 @@ export function RecordPaymentModal({
           )}
 
           {canPayOnline && (
-            <div className="rounded-xl border border-brand-300 bg-gradient-to-br from-brand-50 to-white p-4">
+            <div className="rounded-xl border border-brand-300 bg-gradient-to-br from-brand-50 to-white p-4 dark:border-brand-500/40 dark:from-brand-500/10 dark:to-transparent">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="flex items-center gap-1.5 text-sm font-bold text-ink-800">
@@ -178,6 +187,14 @@ export function RecordPaymentModal({
                   {payingOnline ? 'Redirecting…' : <>Pay <Money value={Math.round(Number(amount))} /></>}
                 </button>
               </div>
+              {autoDebitOff && (
+                <label className="mt-3 flex cursor-pointer items-start gap-2 border-t border-brand-200/60 pt-3 text-xs text-ink-600 dark:border-brand-500/20">
+                  <input type="checkbox" className="mt-0.5 h-3.5 w-3.5 accent-brand-600" checked={saveCard} onChange={(e) => setSaveCard(e.target.checked)} />
+                  <span>
+                    <b className="text-ink-800">Save this card for automatic rent payments.</b> Future invoices are charged to it on their due date — you can turn it off any time.
+                  </span>
+                </label>
+              )}
             </div>
           )}
 

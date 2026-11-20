@@ -7,11 +7,16 @@
 // ============================================================================
 
 import type {
+  BulkBillResult,
+  BulkBillRun,
   OrganizationSettings,
   IntegrationsMap,
   DashboardData,
   PortalData,
   PropertyMember,
+  AutoDebitStatus,
+  AutoDebitOverview,
+  AutoDebitInvoiceDetail,
 } from '@/types';
 
 const BASE_URL = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000/api/v1').replace(/\/$/, '');
@@ -162,6 +167,11 @@ export const api = {
   resetPassword: (input: { email: string; token: string; password: string; password_confirmation: string }) =>
     apiFetch('/auth/reset-password', { method: 'POST', body: input, token: null }),
 
+  verifyEmail: (input: { email: string; token: string }) =>
+    apiFetch('/auth/verify-email', { method: 'POST', body: input, token: null }),
+
+  resendVerification: () => apiFetch('/auth/email/resend', { method: 'POST' }),
+
   logout: () => apiFetch('/auth/logout', { method: 'POST' }),
 
   me: () => apiFetch<unknown>('/auth/me').then((e) => e.data),
@@ -173,16 +183,31 @@ export const api = {
     apiFetch<unknown[]>('/notifications', { query: { per_page: 100 } }).then((e) => e.data),
 
   // ---- Online payments (Paystack) ----
-  paystackInitialize: (input: { invoiceId: string; amount?: number }) =>
+  paystackInitialize: (input: { invoiceId: string; amount?: number; saveCard?: boolean }) =>
     apiFetch<{ authorizationUrl: string; reference: string }>('/payments/paystack/initialize', {
       method: 'POST',
       body: input,
     }).then((e) => e.data),
   paystackVerify: (reference: string) =>
-    apiFetch<{ status: string; payment: unknown }>('/payments/paystack/verify', {
+    apiFetch<{
+      status: string;
+      payment: unknown;
+      /** Present when the reference was an auto-debit card setup rather than an invoice payment. */
+      autoDebit?: { status: string; message: string; card: { label: string } | null };
+    }>('/payments/paystack/verify', {
       method: 'POST',
       body: { reference },
     }).then((e) => e.data),
+  // ---- Auto-debit (tenant) ----
+  autoDebitStatus: () => apiFetch<AutoDebitStatus>('/auto-debit').then((e) => e.data),
+  /** Start the small card-verification checkout; redirect the browser to `authorizationUrl`. */
+  autoDebitSetup: () =>
+    apiFetch<{ authorizationUrl: string; reference: string }>('/auto-debit/setup', { method: 'POST' }).then((e) => e.data),
+  autoDebitCancel: () => apiFetch('/auto-debit', { method: 'DELETE' }),
+  // Auto-debit — staff (owner / manager / finance / admin)
+  autoDebitOverview: () => apiFetch<AutoDebitOverview>('/auto-debit/overview').then((e) => e.data),
+  autoDebitInvoice: (invoiceId: string) =>
+    apiFetch<AutoDebitInvoiceDetail>(`/auto-debit/invoices/${invoiceId}`).then((e) => e.data),
   paymentReceiptLink: (id: string) =>
     apiFetch<{ url: string | null; fileName: string | null }>(`/payments/${id}/receipt-link`).then((e) => e.data),
 
@@ -201,6 +226,11 @@ export const api = {
   // ---- Reminders ----
   sendOverdueReminders: (propertyId?: string) =>
     apiFetch<{ invoices: number; notified: number; emailed: number }>('/reminders/overdue', {
+      method: 'POST',
+      body: propertyId ? { propertyId } : {},
+    }),
+  sendLeaseRenewalReminders: (propertyId?: string) =>
+    apiFetch<{ leases: number; notified: number; emailed: number }>('/reminders/expiring-leases', {
       method: 'POST',
       body: propertyId ? { propertyId } : {},
     }),
@@ -263,6 +293,13 @@ export const api = {
     apiFetch(`/properties/${propertyId}/invitations`, { method: 'POST', body: input }),
   revokeMember: (propertyId: string, memberId: string) =>
     apiFetch(`/properties/${propertyId}/members/${memberId}`, { method: 'DELETE' }),
+
+  /** Bill every meter that is ready (or, with `dryRun`, report what that would raise). */
+  billAllMeters: (input: { propertyIds?: string[]; dryRun?: boolean }) =>
+    apiFetch<BulkBillResult>('/meters/bill-all', { method: 'POST', body: input }).then((e) => e.data),
+
+  /** The latest bulk billing runs on the caller's properties, newest first. */
+  billRuns: (limit = 10) => apiFetch<BulkBillRun[]>(`/meters/bill-runs?limit=${limit}`).then((e) => e.data),
 
   /** Generic request used by the write-through middleware. Returns `data`. */
   request: <T = unknown>(method: Method, path: string, body?: unknown) =>

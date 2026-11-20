@@ -5,11 +5,12 @@ import { useNavigate } from '@/lib/router';
 import {
   Home, FileText, Receipt, CreditCard, Wrench, Bell, FolderOpen, MessageSquare,
   Plus, CheckCircle2, Clock, ShieldCheck, BedDouble, Bath, Ruler, Car, Download,
-  AlertTriangle, Megaphone, CalendarClock,
+  AlertTriangle, Megaphone, CalendarClock, Gauge,
 } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { selectData, selectCurrentUser, selectPortal, invoiceOutstanding } from '@/store/selectors';
 import { fetchPortal, confirmMaintenanceDone } from '@/store/thunks';
+import { AutoDebitCard } from '@/components/AutoDebitCard';
 import { dataActions } from '@/store/dataSlice';
 import { pushToast } from '@/store/uiSlice';
 import {
@@ -19,8 +20,10 @@ import {
 import { RecordPaymentModal } from '@/components/RecordPaymentModal';
 import { PaymentReviewModal } from '@/components/PaymentReviewModal';
 import { invoiceStatusMeta, paymentStatusMeta, maintenanceStatusMeta, leaseStatusMeta, urgencyMeta } from '@/lib/status';
+import { DEPOSIT_ENTRY_TENANT_LABEL, depositHeld, depositOutstanding } from '@/lib/deposit';
+import { unbilledChargeTotal } from '@/lib/usage';
 import { formatDate, formatDateTime, fromNow, formatNumber, daysUntil, uid } from '@/lib/format';
-import type { Invoice, Payment, MaintenanceRequest, DocumentRecord, MaintenanceUrgency } from '@/types';
+import type { Invoice, Lease, Payment, MaintenanceRequest, DocumentRecord, MaintenanceUrgency } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Shared tenant context
@@ -89,6 +92,9 @@ export function PortalHome() {
     ?? ctx.maintenance.filter((m) => !['verified', 'closed'].includes(m.status)).length;
   const recentPayments = portal?.recentPayments ?? ctx.payments.slice(0, 4);
   const notices = portal?.notices ?? ctx.notices;
+  // The unit's meters (the server only sends a tenant their own). No meters, no tile.
+  const unitMeters = unit ? ctx.data.meters.filter((m) => m.unitId === unit.id) : [];
+  const utilitiesDue = unbilledChargeTotal(unitMeters);
 
   return (
     <div>
@@ -115,6 +121,11 @@ export function PortalHome() {
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-1">
           <StatCard label="Lease status" value={lease ? leaseStatusMeta(lease.status).label : 'None'} icon={<FileText className="h-5 w-5" />} tone={lease ? 'green' : 'gray'} onClick={() => navigate('/portal/lease')} />
           <StatCard label="Open requests" value={openJobsCount} icon={<Wrench className="h-5 w-5" />} tone={openJobsCount ? 'cyan' : 'gray'} onClick={() => navigate('/portal/maintenance')} />
+          {unitMeters.length > 0 && (
+            <div className="col-span-2 lg:col-span-1">
+              <StatCard label="Utilities not yet billed" value={<Money value={utilitiesDue} />} hint={`${unitMeters.length} meter${unitMeters.length > 1 ? 's' : ''} on your unit`} icon={<Gauge className="h-5 w-5" />} tone={utilitiesDue > 0 ? 'amber' : 'gray'} onClick={() => navigate('/portal/utilities')} />
+            </div>
+          )}
         </div>
       </div>
 
@@ -162,6 +173,39 @@ export function PortalHome() {
 // ---------------------------------------------------------------------------
 // My Lease
 // ---------------------------------------------------------------------------
+/** Where the tenant's deposit has gone: what they paid in, and anything kept, used on an invoice or refunded. */
+function DepositHistory({ lease }: { lease: Lease }) {
+  const ledger = (lease.depositLedger ?? []).slice().sort((a, b) => a.date.localeCompare(b.date));
+  if (ledger.length === 0) return null;
+  const sum = (type: string) => ledger.filter((e) => e.type === type).reduce((s, e) => s + e.amount, 0);
+  const kept = sum('deduction');
+  const used = sum('offset');
+  const refunded = sum('refund');
+
+  return (
+    <SectionCard
+      className="mt-5"
+      title="Deposit history"
+      subtitle={lease.depositSettledOn ? `Settled ${formatDate(lease.depositSettledOn)}` : 'Every movement of your deposit'}
+      bodyClassName="p-0"
+    >
+      <ul className="divide-y divide-ink-100">
+        {ledger.map((e) => (
+          <li key={e.id} className="flex items-center justify-between gap-3 px-5 py-3 text-sm">
+            <div className="min-w-0"><p className="font-semibold text-ink-800">{DEPOSIT_ENTRY_TENANT_LABEL[e.type]}</p><p className="truncate text-xs text-ink-400">{formatDate(e.date)} · {e.note}</p></div>
+            <Money value={e.type === 'received' ? e.amount : -e.amount} className={e.type === 'received' ? 'font-semibold text-brand-700' : 'font-semibold text-ink-700'} />
+          </li>
+        ))}
+      </ul>
+      {lease.depositSettledOn && (
+        <p className="border-t border-ink-100 px-5 py-3 text-xs text-ink-500">
+          Of the ₦{sum('received').toLocaleString('en-NG')} you paid: ₦{kept.toLocaleString('en-NG')} was kept{used > 0 ? `, ₦${used.toLocaleString('en-NG')} was used to pay your invoices` : ''}, and ₦{refunded.toLocaleString('en-NG')} was refunded to you.
+        </p>
+      )}
+    </SectionCard>
+  );
+}
+
 export function PortalLease() {
   const ctx = useTenantCtx();
   if (!ctx.tenant) return <div><PageHeader title="My Lease" /><NoTenant /></div>;
@@ -179,7 +223,9 @@ export function PortalLease() {
               <KeyValue label="Status"><StatusBadge meta={leaseStatusMeta(lease.status)} /></KeyValue>
               <KeyValue label="Start date">{formatDate(lease.startDate)}</KeyValue>
               <KeyValue label="End date">{formatDate(lease.endDate)}</KeyValue>
-              <KeyValue label="Days remaining">{Math.max(0, daysUntil(lease.endDate))} days</KeyValue>
+              {['active', 'expiring', 'renewed'].includes(lease.status)
+                ? <KeyValue label="Days remaining">{Math.max(0, daysUntil(lease.endDate))} days</KeyValue>
+                : <KeyValue label="Lease"><span className="capitalize">{lease.status === 'terminated' ? 'Ended early' : 'Ended'}</span></KeyValue>}
             </dl>
             <dl>
               <KeyValue label="Annual rent"><Money value={lease.rent} /></KeyValue>
@@ -193,10 +239,15 @@ export function PortalLease() {
         <Card className="bg-gradient-to-br from-brand-600 to-brand-700 text-white">
           <ShieldCheck className="h-6 w-6 text-white/70" />
           <p className="mt-2 text-sm text-white/80">Deposit held in trust</p>
-          <Money value={lease.securityDeposit} className="text-3xl font-extrabold" />
+          <Money value={depositHeld(lease)} className="text-3xl font-extrabold" />
+          {depositOutstanding(lease) > 0 && !lease.depositSettledOn && (
+            <p className="mt-1 text-xs text-white/80">₦{depositOutstanding(lease).toLocaleString('en-NG')} of the ₦{(lease.securityDeposit ?? 0).toLocaleString('en-NG')} deposit is still to be paid.</p>
+          )}
           <p className="mt-2 text-xs text-white/70">Refundable at end of tenancy, subject to inspection.</p>
         </Card>
       </div>
+
+      <DepositHistory lease={lease} />
 
       <div className="mt-5 grid gap-5 lg:grid-cols-2">
         <SectionCard title="Your unit">
@@ -260,8 +311,9 @@ export function PortalBills() {
                 <div className="flex items-center gap-3">
                   <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-50 text-amber-600"><Receipt className="h-5 w-5" /></span>
                   <div>
-                    <button className="font-semibold text-ink-800 hover:text-brand-600 hover:underline" onClick={() => navigate(`/invoices/${inv.id}`)}>{inv.code}</button>
+                    <button className="font-semibold text-ink-800 hover:text-brand-600 hover:underline" onClick={() => navigate(`/portal/bills/${inv.id}`)}>{inv.code}</button>
                     <p className="text-xs text-ink-400">Due {formatDate(inv.dueDate)} · <StatusBadge meta={invoiceStatusMeta(inv.status)} /></p>
+                    {(inv.penalty ?? 0) > 0 && <p className="mt-0.5 text-xs font-medium text-red-600">Includes a ₦{(inv.penalty ?? 0).toLocaleString('en-NG')} late fee</p>}
                   </div>
                 </div>
                 <div className="flex items-center gap-4">
@@ -275,7 +327,7 @@ export function PortalBills() {
       )}
 
       <SectionCard title="All invoices" bodyClassName="p-0">
-        <PortalInvoiceTable invoices={invoices} onOpen={(i) => navigate(`/invoices/${i.id}`)} />
+        <PortalInvoiceTable invoices={invoices} onOpen={(i) => navigate(`/portal/bills/${i.id}`)} />
       </SectionCard>
 
       {payId && <RecordPaymentModal invoiceId={payId} onClose={() => setPayId(null)} title="Pay invoice" />}
@@ -290,7 +342,7 @@ function PortalInvoiceTable({ invoices, onOpen }: { invoices: Invoice[]; onOpen:
     { key: 'code', header: 'Invoice', sortValue: (i) => i.code, render: (i) => <span className="font-semibold text-ink-800">{i.code}</span> },
     { key: 'issue', header: 'Issued', sortValue: (i) => i.issueDate, render: (i) => <span className="text-ink-600">{formatDate(i.issueDate)}</span> },
     { key: 'due', header: 'Due', sortValue: (i) => i.dueDate, render: (i) => <span className="text-ink-600">{formatDate(i.dueDate)}</span> },
-    { key: 'total', header: 'Total', align: 'right', sortValue: (i) => i.total, render: (i) => <Money value={i.total} /> },
+    { key: 'total', header: 'Total', align: 'right', sortValue: (i) => i.total, render: (i) => <div><Money value={i.total} />{(i.penalty ?? 0) > 0 && <p className="text-xs text-red-600">incl. ₦{(i.penalty ?? 0).toLocaleString('en-NG')} late fee</p>}{!!i.lateFeeWaivedOn && !(i.penalty ?? 0) && <p className="text-xs text-ink-400">late fee waived</p>}</div> },
     { key: 'out', header: 'Outstanding', align: 'right', sortValue: (i) => invoiceOutstanding(i), render: (i) => <Money value={invoiceOutstanding(i)} className={invoiceOutstanding(i) > 0 ? 'font-semibold text-amber-600' : 'text-ink-400'} /> },
     { key: 'status', header: 'Status', sortValue: (i) => i.status, render: (i) => <StatusBadge meta={invoiceStatusMeta(i.status)} /> },
   ];
@@ -343,6 +395,7 @@ export function PortalPay() {
             <p className="text-sm text-white/80">Total outstanding</p>
             <Money value={balance} className="text-3xl font-extrabold" />
           </Card>
+          <AutoDebitCard />
           <Card>
             <p className="text-sm font-semibold text-ink-800">How verification works</p>
             <ol className="mt-2 space-y-2 text-sm text-ink-500">

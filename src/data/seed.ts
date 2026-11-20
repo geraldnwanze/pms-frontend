@@ -1,3 +1,4 @@
+import { periodShare } from '@/lib/billing';
 import type {
   MaintenancePayout,
   User, Property, Building, Unit, Tenant, Lease, Invoice, Payment,
@@ -8,9 +9,13 @@ import type {
   InvoiceStatus, LeaseStatus,
 } from '@/types';
 import {
-  createRng, pick, randInt, shuffle, seqId, addMonths, daysUntil, TODAY,
+  createRng, pick, randInt, shuffle, seqId, addMonths, daysBetween, SEED_TODAY as TODAY,
 } from '@/lib/format';
 import dayjs from 'dayjs';
+
+/** The organization's default late-fee policy — keep in step with SettingsService::DEFAULTS in the backend. */
+const LATE_FEE_PERCENT = 10;
+const LATE_FEE_GRACE_DAYS = 5;
 
 export interface SeedData {
   users: User[];
@@ -91,6 +96,9 @@ const MAINT_TITLES: Record<string, string[]> = {
 const VENDOR_SERVICES = ['Plumbing & Fittings', 'Electrical Works', 'HVAC Services', 'General Contractor', 'Cleaning Services', 'Security Services', 'Landscaping', 'Pest Control'];
 
 // ---- Generator -------------------------------------------------------------
+
+// Seed-time day math is pinned to the fixed seed date, not the real clock.
+const daysUntil = (date: string) => daysBetween(TODAY, date);
 
 export function generateSeed(): SeedData {
   const rng = createRng(20260825);
@@ -294,14 +302,15 @@ export function generateSeed(): SeedData {
 
         // Meter
         const prev = randInt(rng, 1000, 5000);
+        const meterNumber = `MTR-${randInt(rng, 100000, 999999)}`;
+        const current = prev + randInt(rng, 80, 400);
+        const steps = Array.from({ length: 4 }, () => randInt(rng, 80, 200));
         meters.push({
           id: meterId, propertyId: propId, unitId: uId,
-          type: 'electricity', meterNumber: `MTR-${randInt(rng, 100000, 999999)}`,
-          unitOfMeasure: 'kWh', previousReading: prev, currentReading: prev + randInt(rng, 80, 400),
+          type: 'electricity', meterNumber,
+          unitOfMeasure: 'kWh', previousReading: prev, currentReading: current,
           ratePerUnit: 68,
-          history: Array.from({ length: 4 }).map((_, k) => ({
-            date: addMonths(TODAY, -(4 - k)), value: prev - (4 - k) * randInt(rng, 80, 200),
-          })),
+          history: readingHistory(prev, current, steps),
         });
 
         // Occupied units get a tenant + lease + invoices + payments
@@ -314,6 +323,9 @@ export function generateSeed(): SeedData {
       }
     }
   });
+
+  // Water and gas meters. They draw from their own random stream, so adding them leaves every other seeded record exactly as it was.
+  addWaterAndGasMeters(units, meters);
 
   // Recompute vendor totals from expenses later; first generate maintenance & expenses
   generateMaintenance({ rng, properties, units, leases, techs, vendors, maintenance, fullName });
@@ -377,30 +389,36 @@ function buildTenancy(unit: Unit, property: Property, cycle: BillingCycle, ctx: 
   }
 
   const cycleMonths = cycle === 'monthly' ? 1 : cycle === 'quarterly' ? 3 : cycle === 'half-yearly' ? 6 : 12;
-  const startMonthsAgo = randInt(rng, 1, 14);
+  // A one-year lease that is still running: started within the last 11 months, so its unit really is let. (It used
+  // to reach back 14 months, which left about one occupied unit in seven with a lease that had already ended.)
+  const startMonthsAgo = randInt(rng, 1, 11);
   const startDate = addMonths(TODAY, -startMonthsAgo);
   const endDate = addMonths(startDate, 12);
   const until = daysUntil(endDate);
-  let leaseStatus: LeaseStatus = 'active';
-  if (until < 0) leaseStatus = 'expired';
-  else if (until <= 60) leaseStatus = 'expiring';
+  const leaseStatus: LeaseStatus = until <= 60 ? 'expiring' : 'active';
 
   const leaseId = seqId('lease');
+  // The deposit was collected in full when the lease began (a few tenants are still paying theirs in, below).
   const lease: Lease = {
     id: leaseId, code: `LSE-${leaseId.slice(-5).toUpperCase()}`,
     unitId: unit.id, propertyId: property.id, tenantId: tId,
     startDate, endDate, rent: unit.rent, billingCycle: cycle,
     securityDeposit: unit.securityDeposit, noticePeriodDays: 90,
-    status: ctx.occupied ? leaseStatus : 'active', signed: rng() > 0.2,
+    status: leaseStatus, signed: rng() > 0.2,
     createdAt: startDate,
+    depositLedger: [{ id: seqId('dep'), type: 'received', amount: unit.securityDeposit, date: startDate, note: 'Deposit received by bank-transfer' }],
   };
+
+  // A reserved unit is held for this prospective tenant but not let yet: they exist, a lease does not. (The lease is
+  // still drawn above so the rest of the seed's random sequence is unchanged.) Nothing is billed until it is let.
+  if (!ctx.occupied) return;
   leases.push(lease);
 
-  if (!ctx.occupied) return; // reserved: lease drafted, no invoices yet
-
   // Current-period invoice
-  const periodRent = unit.rent * cycleMonths;
-  const total = periodRent + unit.serviceCharge + (rng() > 0.7 ? unit.utilityCharge : 0);
+  // Rent and service charge are annual figures; an invoice carries the share of the year its period covers.
+  const periodRent = periodShare(unit.rent, cycleMonths);
+  const periodService = periodShare(unit.serviceCharge, cycleMonths);
+  const total = periodRent + periodService + (rng() > 0.7 ? unit.utilityCharge : 0);
   const dueOffsetDays = randInt(rng, -40, 25);
   const dueDate = dayjs(TODAY).add(dueOffsetDays, 'day').format('YYYY-MM-DD');
   const issueDate = dayjs(dueDate).subtract(14, 'day').format('YYYY-MM-DD');
@@ -485,12 +503,22 @@ function buildTenancy(unit: Unit, property: Property, cycle: BillingCycle, ctx: 
     issueDate, dueDate,
     lineItems: [
       { id: seqId('li'), description: `${cycle} rent — ${unit.type} ${unit.code}`, type: 'rent', amount: periodRent },
-      { id: seqId('li'), description: 'Service charge', type: 'service-charge', amount: unit.serviceCharge },
-      ...(total > periodRent + unit.serviceCharge ? [{ id: seqId('li'), description: 'Utility charge', type: 'utility' as const, amount: unit.utilityCharge }] : []),
+      { id: seqId('li'), description: 'Service charge', type: 'service-charge', amount: periodService },
+      ...(total > periodRent + periodService ? [{ id: seqId('li'), description: 'Utility charge', type: 'utility' as const, amount: unit.utilityCharge }] : []),
     ],
     total, amountPaid, status, cycle,
-    penalty: status === 'overdue' ? Math.round(total * 0.05 / 1000) * 1000 : undefined,
   };
+  // The organization's late-fee policy (see DEFAULTS in the backend's SettingsService): an invoice more than the grace
+  // period past due that still owes money, with no payment waiting to be verified, is charged ONE fee of lateFeePercent
+  // of what is owed. The fee is part of the total, as the server does it.
+  const owing = total - amountPaid;
+  const paymentInFlight = invoicePayments.some((p) => p.status === 'pending-verification' || p.status === 'initiated');
+  if (status !== 'fully-paid' && owing > 0 && dueOffsetDays < -LATE_FEE_GRACE_DAYS && !paymentInFlight) {
+    const fee = Math.round((owing * LATE_FEE_PERCENT) / 100);
+    invoice.penalty = fee;
+    invoice.total = total + fee;
+    invoice.lateFeeAppliedOn = dayjs(dueDate).add(LATE_FEE_GRACE_DAYS + 1, 'day').format('YYYY-MM-DD');
+  }
   invoices.push(invoice);
   payments.push(...invoicePayments);
 }
@@ -874,4 +902,56 @@ function generateTasksAndEvents(a: {
   maintenance.filter((m) => m.status !== 'closed').slice(0, 6).forEach((m) => {
     events.push({ id: seqId('evt'), title: m.title, date: m.createdAt, kind: 'maintenance', refId: m.id });
   });
+}
+
+/**
+ * Most lettable units have a water meter and some a gas meter, alongside the electricity one every unit has. They differ in
+ * unit and tariff, and some have already been billed up to an earlier reading, so billing the demo exercises every case:
+ * a never-billed meter, a part-billed one, and one with nothing new to bill.
+ */
+function addWaterAndGasMeters(units: Unit[], meters: Meter[]) {
+  const rng = createRng(20260826);
+  for (const unit of units) {
+    if (unit.status === 'renovation' || unit.status === 'maintenance') continue;
+
+    const add = (type: 'water' | 'gas', code: string, unitOfMeasure: string, ratePerUnit: number, start: number, perMonth: [number, number]) => {
+      const id = `mtr_${code}_${unit.id}`;
+      const previousReading = start;
+      const monthly = () => randInt(rng, perMonth[0], perMonth[1]);
+      const steps = Array.from({ length: 4 }, monthly);
+      const meterNumber = `${code.toUpperCase()}-${randInt(rng, 100000, 999999)}`;
+      const currentReading = previousReading + monthly();
+      const meter: Meter = {
+        id, propertyId: unit.propertyId, unitId: unit.id, type, meterNumber,
+        unitOfMeasure, previousReading, currentReading, ratePerUnit, history: readingHistory(previousReading, currentReading, steps),
+      };
+      // About a third were billed up to last month's reading; one in ten is fully billed, with nothing new to charge.
+      const billed = rng();
+      if (billed < 0.1) { meter.billedReading = meter.currentReading; meter.billedAt = TODAY; }
+      else if (billed < 0.4) { meter.billedReading = previousReading; meter.billedAt = addMonths(TODAY, -1); }
+      meters.push(meter);
+      unit.meterIds = [...(unit.meterIds ?? []), id];
+    };
+
+    if (rng() < 0.85) add('water', 'wtr', 'm³', 350, randInt(rng, 200, 900), [8, 24]);
+    if (unit.bedrooms >= 2 && rng() < 0.4) add('gas', 'gas', 'kg', 1250, randInt(rng, 40, 160), [6, 18]);
+  }
+}
+
+/**
+ * A meter's reading history the way real readings leave it: dated readings in order, running up to the reading before the
+ * latest (`previous`, a month ago) and ending with the latest (`current`, today). `steps` are the use in each earlier month,
+ * newest first from the end; the first is not needed to place the three earlier readings but is part of the seed's draw order.
+ */
+function readingHistory(previous: number, current: number, steps: number[]) {
+  const m2 = previous - steps[3];
+  const m3 = m2 - steps[2];
+  const m4 = m3 - steps[1];
+  return [
+    { date: addMonths(TODAY, -4), value: Math.max(0, m4) },
+    { date: addMonths(TODAY, -3), value: Math.max(0, m3) },
+    { date: addMonths(TODAY, -2), value: Math.max(0, m2) },
+    { date: addMonths(TODAY, -1), value: previous },
+    { date: TODAY, value: current },
+  ];
 }

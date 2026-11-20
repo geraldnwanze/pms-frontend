@@ -4,7 +4,7 @@ import type { DataState } from './dataSlice';
 import type {
   User, Unit, Lease, Invoice, Payment, Property, Tenant, AppNotification,
 } from '@/types';
-import { TODAY } from '@/lib/format';
+import { today, daysUntil } from '@/lib/format';
 
 // ---- Raw slice selectors (stable references) -------------------------------
 
@@ -168,7 +168,7 @@ export interface PortfolioKpis {
   totalTenants: number;
   activeLeases: number;
   expiringLeases: number;
-  monthlyExpectedRent: number;
+  annualRentRoll: number;
   expectedBilled: number;
   collected: number;
   outstanding: number;
@@ -196,15 +196,15 @@ export function computeKpis(data: DataState, propertyIds: Set<string>): Portfoli
   const maintenance = units.filter((u) => u.status === 'maintenance').length;
   const underRenovation = units.filter((u) => u.status === 'renovation').length;
 
-  const monthlyExpectedRent = units.filter((u) => u.status === 'occupied').reduce((s, u) => s + u.rent, 0);
+  const annualRentRoll = units.filter((u) => u.status === 'occupied').reduce((s, u) => s + u.rent, 0);
   const expectedBilled = invoices.reduce((s, i) => s + i.total, 0);
   const collected = invoices.reduce((s, i) => s + i.amountPaid, 0);
   const outstanding = invoices.reduce((s, i) => s + Math.max(0, i.total - i.amountPaid), 0);
-  const overdue = invoices.filter((i) => i.status === 'overdue').reduce((s, i) => s + Math.max(0, i.total - i.amountPaid), 0);
+  const overdue = invoices.filter(isOverdue).reduce((s, i) => s + Math.max(0, i.total - i.amountPaid), 0);
   const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
 
   const activeLeases = leases.filter((l) => ['active', 'expiring', 'renewed'].includes(l.status)).length;
-  const expiringLeases = leases.filter((l) => l.status === 'expiring').length;
+  const expiringLeases = leases.filter((l) => isLeaseExpiring(l)).length;
   const activeTenantIds = new Set(leases.filter((l) => ['active', 'expiring', 'renewed'].includes(l.status)).map((l) => l.tenantId));
 
   const openMaintenance = data.maintenance.filter((m) => propertyIds.has(m.propertyId) && !['verified', 'closed'].includes(m.status)).length;
@@ -218,7 +218,7 @@ export function computeKpis(data: DataState, propertyIds: Set<string>): Portfoli
     occupied, vacant, reserved, maintenance, underRenovation,
     totalTenants: activeTenantIds.size,
     activeLeases, expiringLeases,
-    monthlyExpectedRent, expectedBilled, collected, outstanding, overdue,
+    annualRentRoll, expectedBilled, collected, outstanding, overdue,
     totalExpenses,
     netIncome: collected - totalExpenses,
     openMaintenance, pendingVerifications,
@@ -234,7 +234,7 @@ export interface PropertyPerformance {
   units: number;
   occupied: number;
   vacant: number;
-  monthlyExpectedRent: number;
+  annualRentRoll: number;
   expectedBilled: number;
   collected: number;
   outstanding: number;
@@ -253,7 +253,7 @@ export function propertyPerformance(data: DataState, property: Property): Proper
     units: k.totalUnits,
     occupied: k.occupied,
     vacant: k.vacant,
-    monthlyExpectedRent: k.monthlyExpectedRent,
+    annualRentRoll: k.annualRentRoll,
     expectedBilled: k.expectedBilled,
     collected: k.collected,
     outstanding: k.outstanding,
@@ -267,12 +267,25 @@ export function propertyPerformance(data: DataState, property: Property): Proper
 
 // ---- Invoice status helper -------------------------------------------------
 
+/** What is still owed on an invoice. A cancelled invoice owes nothing, whatever its total says. */
 export function invoiceOutstanding(inv: Invoice): number {
+  if (inv.status === 'cancelled') return 0;
   return Math.max(0, inv.total - inv.amountPaid);
 }
 
 export function isOverdue(inv: Invoice): boolean {
-  return inv.status !== 'fully-paid' && inv.status !== 'cancelled' && inv.dueDate < TODAY && invoiceOutstanding(inv) > 0;
+  return inv.status !== 'fully-paid' && inv.status !== 'cancelled' && inv.dueDate < today() && invoiceOutstanding(inv) > 0;
+}
+
+/**
+ * A lease that is still running and ends within `withinDays` of today. Decided by the
+ * calendar, not the stored `expiring` status (which only changes when something rewrites
+ * it) — the renewal-reminder job on the server applies the same rule.
+ */
+export function isLeaseExpiring(lease: Lease, withinDays = 60): boolean {
+  if (lease.status !== 'active' && lease.status !== 'expiring') return false;
+  const left = daysUntil(lease.endDate);
+  return left >= 0 && left <= withinDays;
 }
 
 // ---- Notifications relevant to a user --------------------------------------

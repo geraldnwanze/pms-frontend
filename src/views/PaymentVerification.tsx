@@ -11,7 +11,7 @@ import {
 } from '@/components/ui';
 import { PaymentReviewModal } from '@/components/PaymentReviewModal';
 import { canApprovePayments } from '@/config/roles';
-import { fromNow, daysBetween, uid, TODAY, classNames } from '@/lib/format';
+import { fromNow, daysBetween, uid, today, classNames } from '@/lib/format';
 import type { Payment } from '@/types';
 
 export function PaymentVerification() {
@@ -32,7 +32,7 @@ export function PaymentVerification() {
   );
 
   const totalAmount = pending.reduce((s, p) => s + p.amount, 0);
-  const oldestDays = pending.length ? daysBetween(pending[0].submittedAt.slice(0, 10), TODAY) : 0;
+  const oldestDays = pending.length ? daysBetween(pending[0].submittedAt.slice(0, 10), today()) : 0;
   const withReceipt = pending.filter((p) => p.receiptFileName).length;
 
   const quickApprove = (p: Payment) => {
@@ -63,7 +63,7 @@ export function PaymentVerification() {
             const unit = data.units.find((u) => u.id === p.unitId);
             const property = data.properties.find((pr) => pr.id === p.propertyId);
             const invoice = data.invoices.find((i) => i.id === p.invoiceId);
-            const waiting = daysBetween(p.submittedAt.slice(0, 10), TODAY);
+            const waiting = daysBetween(p.submittedAt.slice(0, 10), today());
             return (
               <Card key={p.id} className="flex flex-col gap-4 transition-shadow hover:shadow-card-hover lg:flex-row lg:items-center">
                 <div className="flex flex-1 items-center gap-3">

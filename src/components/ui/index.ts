@@ -7,3 +7,7 @@ export * from './form';
 export * from './PageHeader';
 export * from './Breadcrumbs';
 export * from './ExportMenu';
+export * from './PhotoPicker';
+export * from './LocationFields';
+export * from './PhotoStrip';
+export * from './PhotoGallery';

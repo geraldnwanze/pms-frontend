@@ -20,6 +20,16 @@ export function exportToExcel(filename: string, sheetName: string, rows: Row[]) 
   XLSX.writeFile(wb, `${filename}.xlsx`);
 }
 
+/**
+ * The PDF's built-in fonts have no naira sign: a string containing one is encoded in a way that garbles the *whole* string
+ * ("Amount (₦)" prints as spaced-out letters and a stray "¦"). So the sign is written as "NGN" in PDFs — before a figure
+ * with a space ("NGN 1,000"), otherwise bare ("Amount (NGN)").
+ */
+export function pdfSafe<T extends string | number>(text: T): T {
+  if (typeof text !== 'string') return text;
+  return text.replace(/₦(?=\s*\d)/g, 'NGN ').replace(/₦/g, 'NGN') as T;
+}
+
 /** Generate a branded PDF table report. */
 export function exportToPdf(opts: {
   filename: string;
@@ -46,13 +56,13 @@ export function exportToPdf(opts: {
   doc.setTextColor(15, 23, 42);
   doc.setFontSize(14);
   doc.setFont('helvetica', 'bold');
-  doc.text(opts.title, 14, 38);
+  doc.text(pdfSafe(opts.title), 14, 38);
   let y = 44;
   if (opts.subtitle) {
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(100, 116, 139);
-    doc.text(opts.subtitle, 14, y);
+    doc.text(pdfSafe(opts.subtitle), 14, y);
     y += 6;
   }
 
@@ -60,14 +70,14 @@ export function exportToPdf(opts: {
     doc.setFontSize(9);
     doc.setTextColor(100, 116, 139);
     Object.entries(opts.meta).forEach(([k, v]) => {
-      doc.text(`${k}: ${v}`, 14, y);
+      doc.text(pdfSafe(`${k}: ${v}`), 14, y);
       y += 5;
     });
   }
 
   autoTable(doc, {
-    head: [opts.columns],
-    body: opts.rows,
+    head: [opts.columns.map(pdfSafe)],
+    body: opts.rows.map((r) => r.map(pdfSafe)),
     startY: y + 2,
     styles: { fontSize: 8, cellPadding: 2.5 },
     headStyles: { fillColor: [15, 23, 42], textColor: 255, fontStyle: 'bold' },

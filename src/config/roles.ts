@@ -71,7 +71,12 @@ export function can(role: Role | undefined, permission: Permission): boolean {
  * Row-level scope (only their own properties) is enforced server-side.
  */
 export function canManageStructure(role: Role | undefined): boolean {
-  return can(role, 'create') || role === 'owner';
+  return role === 'admin' || role === 'owner' || role === 'manager';
+}
+
+/** Registering a new property: the structural roles, plus a plain registered account starting out. Mirrors `config/rbac.php`. */
+export function canRegisterProperty(role: Role | undefined): boolean {
+  return canManageStructure(role) || role === 'user';
 }
 
 /**

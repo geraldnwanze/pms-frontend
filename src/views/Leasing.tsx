@@ -14,7 +14,7 @@ import {
 } from '@/components/ui';
 import { leadStatusMeta } from '@/lib/status';
 import { can } from '@/config/roles';
-import { formatDate, TODAY, fromNow, uid, classNames } from '@/lib/format';
+import { formatDate, today, fromNow, uid, classNames } from '@/lib/format';
 import type { Listing, ListingStatus, Lead, LeadStatus } from '@/types';
 
 // ===========================================================================
@@ -172,7 +172,7 @@ function LeadModal({ leadId, onClose, canManage }: { leadId: string; onClose: ()
   const dispatch = useAppDispatch();
   const data = useAppSelector(selectData);
   const lead = data.leads.find((l) => l.id === leadId);
-  const [viewingDate, setViewingDate] = useState(lead?.viewingDate ?? TODAY);
+  const [viewingDate, setViewingDate] = useState(lead?.viewingDate ?? today());
   const [notes, setNotes] = useState(lead?.notes ?? '');
   if (!lead) return null;
 

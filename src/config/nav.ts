@@ -106,6 +106,7 @@ export const TENANT_NAV: NavGroup[] = [
       { label: 'Overview', path: '/portal', icon: Home, roles: ['tenant'] },
       { label: 'Notifications', path: '/notifications', icon: Bell, roles: ['tenant'], badge: 'unreadNotifications' },
       { label: 'My Lease', path: '/portal/lease', icon: FileSignature, roles: ['tenant'] },
+      { label: 'Utilities', path: '/portal/utilities', icon: Gauge, roles: ['tenant'] },
     ],
   },
   {
