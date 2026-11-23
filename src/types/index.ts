@@ -293,6 +293,11 @@ export interface BulkBillUnit {
   meters: { meterId: string; meterNumber: string | null; type: MeterType | null; unitOfMeasure: string | null; from: number; to: number; units: number; rate: number; amount: number }[];
 }
 
+/** What billing one meter would raise, or why it cannot be billed. Worked out by the server, so it is what the invoice will say. */
+export type BillPreview =
+  | { ok: true; tenantName: string; leaseCode: string; issueDate: string; dueDate: string; from: number; to: number; units: number; rate: number; total: number; final: boolean; endedOn: string | null }
+  | { ok: false; reason: string };
+
 export interface BulkBillResult {
   dryRun: boolean;
   invoices: number;

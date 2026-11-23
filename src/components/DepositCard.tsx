@@ -9,7 +9,7 @@ import { pushToast } from '@/store/uiSlice';
 import { SectionCard, Money, Modal, Field, Input, Select } from '@/components/ui';
 import { can } from '@/config/roles';
 import { formatDate, today, uid } from '@/lib/format';
-import { DEPOSIT_ENTRY_LABEL, arrearsOwed, depositHeld, depositOutstanding, depositReceived, planArrears } from '@/lib/deposit';
+import { DEPOSIT_ENTRY_LABEL, arrearsOwed, depositHeld, depositOutstanding, depositReceived, planArrears, arrearsAwaitingPayment } from '@/lib/deposit';
 import type { Lease } from '@/types';
 
 const METHODS = [
@@ -122,6 +122,9 @@ export function SettleDepositModal({ lease, onClose }: { lease: Lease; onClose: 
   const owed = arrearsOwed(data.invoices, lease.id);
   const plan = applyArrears && kept <= held ? planArrears(data.invoices, data.payments, lease.id, held - kept) : [];
   const applied = plan.reduce((s, p) => s + p.amount, 0);
+  // Unpaid money the deposit leaves alone because a payment on that invoice is waiting to be verified: not a shortfall.
+  const awaiting = arrearsAwaitingPayment(data.invoices, data.payments, lease.id);
+  const short = Math.max(0, owed - applied - awaiting);
   const refund = held - kept - applied;
   const invalid = rows.some((r) => r.reason.trim().length < 3 || !Number.isInteger(Number(r.amount)) || Number(r.amount) <= 0);
   const error = invalid ? 'Give every deduction a reason and a whole amount above zero.' : kept > held ? 'The deductions are more than the deposit held.' : '';
@@ -155,8 +158,11 @@ export function SettleDepositModal({ lease, onClose }: { lease: Lease; onClose: 
             <span><span className="font-medium text-ink-800">Use the deposit to pay unpaid invoices</span><br /><span className="text-xs text-ink-500">The tenant still owes ₦{owed.toLocaleString('en-NG')} on this lease. Oldest invoices are paid first, after your deductions.</span></span>
           </label>
         )}
-        {applyArrears && owed - applied > 0 && (
-          <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">The deposit does not cover everything: the tenant will still owe ₦{(owed - applied).toLocaleString('en-NG')} after this.</p>
+        {applyArrears && short > 0 && (
+          <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">The deposit does not cover everything: the tenant will still owe ₦{short.toLocaleString('en-NG')} after this.</p>
+        )}
+        {applyArrears && awaiting > 0 && (
+          <p data-testid="awaiting-note" className="rounded-lg bg-ink-50 px-3 py-2 text-xs text-ink-600">₦{awaiting.toLocaleString('en-NG')} is left as it is: a payment on that invoice is waiting to be verified, and approving it settles the invoice.</p>
         )}
         {plan.length > 0 && (
           <ul className="divide-y divide-ink-100 rounded-lg border border-ink-100 text-sm">

@@ -146,6 +146,40 @@ describe('DepositCard', () => {
       expect(screen.getByText(/the tenant will still owe ₦50,000 after this/)).toBeInTheDocument();
     });
 
+    describe('when a payment on one of the invoices is waiting to be verified', () => {
+      const waiting = [{ id: 'pay1', invoiceId: 'inv-old', status: 'pending-verification' }];
+
+      it('is not called a shortfall: the money is left for that payment, and the dialog says so', async () => {
+        setup(ended(), 'manager', { invoices, payments: waiting });                       // ₦500,000 held, ₦250,000 owed, ₦150,000 of it awaiting a payment
+        await userEvent.click(screen.getByRole('button', { name: /^settle$/i }));
+
+        await userEvent.click(screen.getByRole('checkbox'));
+
+        expect(screen.queryByText(/does not cover everything/)).not.toBeInTheDocument();
+        expect(screen.getByTestId('awaiting-note')).toHaveTextContent('₦150,000 is left as it is: a payment on that invoice is waiting to be verified');
+        const rows = screen.getAllByRole('listitem').map((li) => li.textContent ?? '').filter((t) => t.startsWith('INV-'));
+        expect(rows).toEqual(['INV-NEW₦100,000']);                                          // only the invoice with no payment on its way is paid from the deposit
+      });
+
+      it('still warns about a real shortfall, counting only what the deposit could have paid', async () => {
+        setup(baseLease({ status: 'terminated', depositLedger: [{ id: 'd1', type: 'received', amount: 80_000, date: '2026-01-02', note: '' }] }), 'manager', { invoices, payments: waiting });
+        await userEvent.click(screen.getByRole('button', { name: /^settle$/i }));
+
+        await userEvent.click(screen.getByRole('checkbox'));
+
+        expect(screen.getByText(/the tenant will still owe ₦20,000 after this/)).toBeInTheDocument();     // 250,000 owed − 80,000 paid − 150,000 awaiting
+        expect(screen.getByTestId('awaiting-note')).toBeInTheDocument();
+      });
+
+      it('says nothing about waiting payments when there are none', async () => {
+        setup(ended(), 'manager', { invoices });
+        await userEvent.click(screen.getByRole('button', { name: /^settle$/i }));
+        await userEvent.click(screen.getByRole('checkbox'));
+
+        expect(screen.queryByTestId('awaiting-note')).not.toBeInTheDocument();
+      });
+    });
+
     it('does not warn when the deposit covers everything', async () => {
       setup(ended(), 'manager', { invoices });
       await userEvent.click(screen.getByRole('button', { name: /^settle$/i }));

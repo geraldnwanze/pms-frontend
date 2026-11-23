@@ -7,6 +7,7 @@
 // ============================================================================
 
 import type {
+  BillPreview,
   BulkBillResult,
   BulkBillRun,
   OrganizationSettings,
@@ -293,6 +294,17 @@ export const api = {
     apiFetch(`/properties/${propertyId}/invitations`, { method: 'POST', body: input }),
   revokeMember: (propertyId: string, memberId: string) =>
     apiFetch(`/properties/${propertyId}/members/${memberId}`, { method: 'DELETE' }),
+
+  /**
+   * End a lease. `closingReadings` are the meter readings taken at move-out: the server saves them in the same step, then bills
+   * the use up to them to the leaving tenant. The envelope's `meta.finalBill` says what was billed, if anything.
+   */
+  terminateLease: (leaseId: string, closingReadings: { meterId: string; value: number }[] = []) =>
+    apiFetch<unknown>(`/leases/${leaseId}/terminate`, { method: 'POST', body: closingReadings.length ? { closingReadings } : {} }) as Promise<Envelope<unknown> & { meta: { finalBill: { id: string; code: string; total: number } | null } | null }>,
+
+  /** What billing this meter would raise, or why it cannot be billed. `reading` asks as if the meter had just been read at that value. */
+  previewMeterBill: (meterId: string, reading?: number) =>
+    apiFetch<BillPreview>(`/meters/${meterId}/bill-preview`, { method: 'POST', body: reading === undefined ? {} : { reading } }).then((e) => e.data),
 
   /** Bill every meter that is ready (or, with `dryRun`, report what that would raise). */
   billAllMeters: (input: { propertyIds?: string[]; dryRun?: boolean }) =>

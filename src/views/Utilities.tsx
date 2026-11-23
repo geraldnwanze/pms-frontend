@@ -1,10 +1,10 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Gauge, Plus, Zap, Droplet, Flame, Activity, TrendingUp, Receipt } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { selectData, selectCurrentUser, scopedPropertyIds } from '@/store/selectors';
+import { selectData, selectCurrentUser, selectRbac, scopedPropertyIds } from '@/store/selectors';
 import { dataActions } from '@/store/dataSlice';
 import { pushToast } from '@/store/uiSlice';
 import {
@@ -12,11 +12,12 @@ import {
   Modal, Field, Input,
 } from '@/components/ui';
 import { unbilledUnits } from '@/lib/deposit';
-import { billPreview, canManageMeters } from '@/lib/usage';
+import { canManageMeters } from '@/lib/usage';
+import { api } from '@/lib/api';
 import { BulkBillModal } from '@/components/BulkBillModal';
 import { RecentBulkRuns } from '@/components/RecentBulkRuns';
 import { formatDate, today, uid, classNames } from '@/lib/format';
-import type { Meter, MeterType } from '@/types';
+import type { BillPreview, Meter, MeterType } from '@/types';
 
 const METER_META: Record<MeterType, { label: string; icon: React.ReactNode; tone: string }> = {
   electricity: { label: 'Electricity', icon: <Zap className="h-4 w-4" />, tone: 'text-amber-600 bg-amber-50' },
@@ -53,10 +54,20 @@ export function Utilities() {
   );
   const rows = type === 'all' ? all : all.filter((m) => m.type === type);
 
-  // The server decides who may bill meters; the button mirrors that, and the count is a hint.
-  const canManage = canManageMeters(user?.role);
-  // A meter is ready when it could be billed to someone today: priced, with use since the last bill and a tenant in the unit.
-  const readyCount = all.filter((m) => billPreview(m, data.leases, data.tenants, today()).ok).length;
+  // The server decides who may bill meters and what is ready; the button follows the rules it sends, and the count is
+  // its own dry run (a meter is ready when it could be billed to someone today), asked again whenever a run finishes.
+  const rbac = useAppSelector(selectRbac);
+  const canManage = canManageMeters(user?.role, rbac);
+  const [readyCount, setReadyCount] = useState(0);
+  const scopeKey = Array.from(scoped).sort().join(',');
+  useEffect(() => {
+    if (!canManage) { setReadyCount(0); return; }
+    let live = true;
+    api.billAllMeters({ propertyIds: scopeKey ? scopeKey.split(',') : [], dryRun: true })
+      .then((r) => live && setReadyCount(r.meters))
+      .catch(() => live && setReadyCount(0));
+    return () => { live = false; };
+  }, [canManage, scopeKey, runsKey]);
 
   const propName = (id: string) => data.properties.find((p) => p.id === id)?.name ?? '—';
   const unitCode = (id?: string) => id ? (data.units.find((u) => u.id === id)?.code ?? '—') : 'Common';
@@ -120,18 +131,39 @@ export function ReadingModal({ meterId, onClose }: { meterId: string; onClose: (
   const user = useAppSelector(selectCurrentUser);
   const data = useAppSelector(selectData);
   const m = data.meters.find((x) => x.id === meterId);
+  const rbac = useAppSelector(selectRbac);
   const [value, setValue] = useState(m?.currentReading ?? 0);
   const [date, setDate] = useState(today());
-  if (!m) return null;
 
-  const mayManage = canManageMeters(user?.role);
+  const mayManage = canManageMeters(user?.role, rbac);
   // A reading typed above the current one is previewed as if it were logged: "Log & bill" does both, in that order.
   const typed = Number(value);
-  const ahead = Number.isFinite(typed) && typed > m.currentReading;
+  const ahead = !!m && Number.isFinite(typed) && typed > m.currentReading;
+  const below = !!m && typed < m.currentReading;
+
+  // What billing would raise is worked out by the server (the one place that knows who is billed, from when, and what falls
+  // due), asked again as a typed reading settles. Until its answer arrives nothing can be billed.
+  const [preview, setPreview] = useState<BillPreview | null>(null);
+  const [pending, setPending] = useState(true);
+  const [previewFailed, setPreviewFailed] = useState(false);
+  const previewMeterId = m?.id;
+  const typedKey = ahead ? typed : null;
+  useEffect(() => {
+    if (!previewMeterId || !mayManage) return;
+    let live = true;
+    setPending(true);
+    const t = setTimeout(() => {
+      api.previewMeterBill(previewMeterId, typedKey ?? undefined)
+        .then((r) => { if (live) { setPreview(r); setPreviewFailed(false); setPending(false); } })
+        .catch(() => { if (live) { setPreview(null); setPreviewFailed(true); setPending(false); } });
+    }, typedKey === null ? 0 : 300);
+    return () => { live = false; clearTimeout(t); };
+  }, [previewMeterId, mayManage, typedKey]);
+
+  if (!m) return null;
   // What the typed reading adds on top of the current one; the invoice card below prices everything since the last bill.
   const added = ahead ? Math.round((typed - m.currentReading) * 1000) / 1000 : 0;
-  const preview = billPreview(ahead ? { ...m, currentReading: typed } : m, data.leases, data.tenants, today());
-  const canBill = mayManage && preview.ok;
+  const canBill = mayManage && !pending && !!preview?.ok;
   const bill = () => {
     dispatch(dataActions.billMeter({ meterId: m.id, actorId: user!.id }));
     dispatch(pushToast({ id: uid('t'), kind: 'success', message: `Billing ${m.meterNumber} to the tenant.` }));
@@ -152,7 +184,7 @@ export function ReadingModal({ meterId, onClose }: { meterId: string; onClose: (
 
   return (
     <Modal open onClose={onClose} title={`${mayManage ? 'Log reading' : 'Readings'} · ${m.meterNumber}`} subtitle={METER_META[m.type].label} size="sm"
-      footer={!mayManage ? <button className="btn-secondary" onClick={onClose}>Done</button> : <><button className="btn-secondary" onClick={onClose}>Cancel</button>{canBill && <button className="btn-secondary" onClick={ahead ? logAndBill : bill}>{ahead ? 'Log & bill' : 'Bill'} ₦{preview.ok ? preview.total.toLocaleString('en-NG') : 0}{ahead ? '' : ' to tenant'}</button>}<button className="btn-primary" onClick={submit}>Log reading</button></>}>
+      footer={!mayManage ? <button className="btn-secondary" onClick={onClose}>Done</button> : <><button className="btn-secondary" onClick={onClose}>Cancel</button>{canBill && <button className="btn-secondary" onClick={ahead ? logAndBill : bill}>{ahead ? 'Log & bill' : 'Bill'} ₦{preview?.ok ? preview.total.toLocaleString('en-NG') : 0}{ahead ? '' : ' to tenant'}</button>}<button className="btn-primary" disabled={below} onClick={submit}>Log reading</button></>}>
       <div className="space-y-4">
         <div className="flex items-center justify-between rounded-lg bg-ink-50 p-3 text-sm">
           <span className="text-ink-500">Current reading</span>
@@ -166,9 +198,12 @@ export function ReadingModal({ meterId, onClose }: { meterId: string; onClose: (
         )}
         {mayManage && (
           <div className="grid grid-cols-2 gap-4">
-            <Field label={`New reading (${m.unitOfMeasure})`}><Input type="number" value={value} onChange={(e) => setValue(Number(e.target.value))} /></Field>
+            <Field label={`New reading (${m.unitOfMeasure})`}><Input type="number" value={value} aria-invalid={below} onChange={(e) => setValue(Number(e.target.value))} /></Field>
             <Field label="Date"><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
           </div>
+        )}
+        {mayManage && below && (
+          <p role="alert" data-testid="reading-below" className="-mt-2 text-sm text-red-600">Not below the current reading ({m.currentReading.toLocaleString()} {m.unitOfMeasure}).</p>
         )}
         {mayManage && ahead && (
           <div data-testid="reading-adds" className="flex items-center justify-between gap-3 rounded-lg border border-brand-100 bg-brand-50/50 p-3 text-sm">
@@ -176,7 +211,7 @@ export function ReadingModal({ meterId, onClose }: { meterId: string; onClose: (
             <Money value={Math.round(added * m.ratePerUnit)} className="font-bold text-brand-700" />
           </div>
         )}
-        {mayManage && <BillPreviewCard meter={m} preview={preview} typed={ahead} />}
+        {mayManage && <BillPreviewCard meter={m} preview={preview} pending={pending} failed={previewFailed} typed={ahead} />}
         {m.history.length > 0 && (
           <div>
             <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-ink-400">Recent readings</p>
@@ -193,7 +228,15 @@ export function ReadingModal({ meterId, onClose }: { meterId: string; onClose: (
 }
 
 /** What "Bill to tenant" would raise, shown before it is clicked (or why it cannot be billed). */
-export function BillPreviewCard({ meter, preview, typed }: { meter: Meter; preview: ReturnType<typeof billPreview>; typed?: boolean }) {
+export function BillPreviewCard({ meter, preview, pending, failed, typed }: { meter: Meter; preview: BillPreview | null; pending?: boolean; failed?: boolean; typed?: boolean }) {
+  if (pending || failed || !preview) {
+    return (
+      <div data-testid="bill-preview" className="rounded-lg border border-ink-200 bg-ink-50 p-3 text-sm text-ink-500">
+        <p className="mb-0.5 text-xs font-semibold uppercase tracking-wide text-ink-400">Bill to tenant</p>
+        {failed && !pending ? 'Could not check what billing would raise. Try again in a moment.' : 'Checking what billing would raise…'}
+      </div>
+    );
+  }
   if (!preview.ok) {
     return (
       <div data-testid="bill-preview" className="rounded-lg border border-ink-200 bg-ink-50 p-3 text-sm text-ink-500">

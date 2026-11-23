@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { usagePeriods, unbilledCharge, unbilledChargeTotal, billPreview, canManageMeters, leaseEndedOn } from './usage';
+import { usagePeriods, unbilledCharge, unbilledChargeTotal, canManageMeters, leaseEndedOn } from './usage';
 
 const h = (...v: [string, number][]) => v.map(([date, value]) => ({ date, value }));
 
@@ -54,56 +54,40 @@ describe('unbilledCharge', () => {
   });
 });
 
+// The matrix as the server sends it (config/rbac.php): who manages meters, and what each role may do.
+const rbac = {
+  permissions: {
+    admin: ['view', 'create', 'edit', 'delete'], owner: ['view', 'export'], manager: ['view', 'create', 'edit'], agent: ['view', 'create', 'edit'],
+    finance: ['view', 'create', 'edit'], maintenance: ['view', 'edit'], tenant: ['view', 'create'], user: ['view', 'create'],
+  },
+  resources: { meters: { view: [], manage: ['admin', 'owner', 'manager'] } },
+} as never;
+
 describe('canManageMeters', () => {
-  it('is the roles the server lets bill: admins and managers', () => {
-    expect(canManageMeters('admin')).toBe(true);
-    expect(canManageMeters('manager')).toBe(true);
+  it('follows the rules the server sends: a role that manages meters and may edit', () => {
+    expect(canManageMeters('admin', rbac)).toBe(true);
+    expect(canManageMeters('manager', rbac)).toBe(true);
   });
 
   it.each(['finance', 'owner', 'agent', 'maintenance', 'tenant', 'user', undefined])('is not %s', (role) => {
-    expect(canManageMeters(role)).toBe(false);
+    expect(canManageMeters(role, rbac)).toBe(false);
+  });
+
+  it('changes when the server’s rules change, with no change here', () => {
+    const financeToo = { ...(rbac as object), resources: { meters: { view: [], manage: ['admin', 'manager', 'finance'] } } } as never;
+    expect(canManageMeters('finance', financeToo)).toBe(true);
+
+    const noEdit = { ...(rbac as object), permissions: { ...(rbac as { permissions: object }).permissions, manager: ['view', 'create'] } } as never;
+    expect(canManageMeters('manager', noEdit)).toBe(false);                // listed as a manager of meters, but not allowed to edit
+  });
+
+  it('shows nobody the controls until the rules have loaded', () => {
+    expect(canManageMeters('admin', null)).toBe(false);
+    expect(canManageMeters('manager', undefined)).toBe(false);
   });
 });
 
-describe('final bills: the tenant who has just left', () => {
-  const meter = { unitId: 'u1', previousReading: 100, currentReading: 250, billedReading: null, ratePerUnit: 60 };
-  const tenants = [{ id: 't1', name: 'Ada Obi' }];
-  const lease = (over: object) => ({ unitId: 'u1', tenantId: 't1', code: 'LSE-1', status: 'terminated', startDate: '2026-01-01', endDate: '2027-01-01', terminatedOn: '2026-11-10', ...over }) as never;
-
-  it('bills a tenant who was terminated a few days ago, and says it is their final bill', () => {
-    const r = billPreview(meter, [lease({})], tenants, '2026-11-15');
-
-    expect(r).toMatchObject({ ok: true, tenantName: 'Ada Obi', leaseCode: 'LSE-1', total: 9000, final: true, endedOn: '2026-11-10' });
-  });
-
-  it('is not a final bill while the tenant still holds the unit', () => {
-    const r = billPreview(meter, [lease({ status: 'active', terminatedOn: null })], tenants, '2026-11-15');
-
-    expect(r).toMatchObject({ ok: true, final: false, endedOn: null });
-  });
-
-  it('prefers whoever holds the unit now over someone who left earlier', () => {
-    const next = lease({ tenantId: 't2', code: 'LSE-2', status: 'active', terminatedOn: null, startDate: '2026-11-12', endDate: '2027-11-11' });
-
-    expect(billPreview(meter, [lease({}), next], [...tenants, { id: 't2', name: 'Nia New' }], '2026-11-15')).toMatchObject({ tenantName: 'Nia New', final: false });
-  });
-
-  it('picks the most recent leaver when several have left', () => {
-    const older = lease({ tenantId: 't0', code: 'LSE-0', terminatedOn: '2026-10-01' });
-
-    expect(billPreview(meter, [older, lease({})], [...tenants, { id: 't0', name: 'Old Tenant' }], '2026-11-15')).toMatchObject({ leaseCode: 'LSE-1' });
-  });
-
-  it('stays responsible for sixty days and not for a day longer', () => {
-    expect(billPreview(meter, [lease({ terminatedOn: '2026-09-16' })], tenants, '2026-11-15').ok).toBe(true);        // 60 days
-    expect(billPreview(meter, [lease({ terminatedOn: '2026-09-15' })], tenants, '2026-11-15')).toMatchObject({ ok: false, reason: expect.stringMatching(/no tenant/) });   // 61
-  });
-
-  it('cannot tell when an older terminated lease with a future end date ended, so it does not guess', () => {
-    expect(billPreview(meter, [lease({ terminatedOn: null })], tenants, '2026-11-15').ok).toBe(false);
-    expect(billPreview(meter, [lease({ terminatedOn: null, endDate: '2026-11-01' })], tenants, '2026-11-15')).toMatchObject({ ok: true, final: true, endedOn: '2026-11-01' });
-  });
-
+describe('when a tenancy ended', () => {
   it('works out when a tenancy ended in each state', () => {
     expect(leaseEndedOn({ status: 'terminated', terminatedOn: '2026-11-10', endDate: '2027-01-01' }, '2026-11-15')).toBe('2026-11-10');
     expect(leaseEndedOn({ status: 'expired', endDate: '2026-11-01' }, '2026-11-15')).toBe('2026-11-01');

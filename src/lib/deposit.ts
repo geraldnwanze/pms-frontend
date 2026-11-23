@@ -58,6 +58,17 @@ export function planArrears(invoices: Invoice[], payments: Pick<Payment, 'invoic
   return plan;
 }
 
+/**
+ * What unpaid invoices of the lease still owe but a payment already on its way will settle: the deposit leaves those alone, so
+ * that money is not "short" — it is waiting on a payment someone still has to verify.
+ */
+export function arrearsAwaitingPayment(invoices: Invoice[], payments: Pick<Payment, 'invoiceId' | 'status'>[], leaseId: string): number {
+  const open = new Set(payments.filter((p) => p.status === 'initiated' || p.status === 'pending-verification').map((p) => p.invoiceId));
+  return invoices
+    .filter((i) => i.leaseId === leaseId && i.status !== 'cancelled' && open.has(i.id))
+    .reduce((s, i) => s + Math.max(0, i.total - i.amountPaid), 0);
+}
+
 /** Everything the lease's unpaid invoices still owe. */
 export function arrearsOwed(invoices: Invoice[], leaseId: string): number {
   return invoices.filter((i) => i.leaseId === leaseId && i.status !== 'cancelled').reduce((s, i) => s + Math.max(0, i.total - i.amountPaid), 0);

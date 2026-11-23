@@ -11,14 +11,16 @@ import { dataActions } from '@/store/dataSlice';
 import { pushToast } from '@/store/uiSlice';
 import {
   PageHeader, Breadcrumbs, Card, SectionCard, StatCard, StatusBadge, Money, KeyValue, Avatar, Badge,
-  EmptyState, DataTable, type Column, Modal, Field, Input, ConfirmDialog,
+  EmptyState, DataTable, type Column, Modal, Field, Input,
 } from '@/components/ui';
 import { PaymentReviewModal } from '@/components/PaymentReviewModal';
 import { DepositCard } from '@/components/DepositCard';
+import { TerminateLeaseModal } from '@/components/TerminateLeaseModal';
 import { depositHeld } from '@/lib/deposit';
+import { leaseEndedOn } from '@/lib/usage';
 import { RecordPaymentModal } from '@/components/RecordPaymentModal';
 import { leaseStatusMeta, invoiceStatusMeta, paymentStatusMeta } from '@/lib/status';
-import { formatDate, addMonths, daysUntil, uid } from '@/lib/format';
+import { formatDate, addMonths, daysUntil, today, uid } from '@/lib/format';
 import { can } from '@/config/roles';
 import type { Invoice, Payment } from '@/types';
 
@@ -59,13 +61,9 @@ export function LeaseDetail() {
   const { tenant, unit, property, building, invoices, payments, balance } = ctx;
   const isActive = ['active', 'expiring', 'renewed'].includes(lease.status);
   const daysLeft = daysUntil(lease.endDate);
+  // When the tenancy actually ended: for a terminated lease that is the day it was terminated, not the contract's end date.
+  const endedOn = lease.status === 'terminated' || lease.status === 'expired' ? leaseEndedOn(lease, today()) : null;
   const manage = can(user?.role, 'create');
-
-  const doTerminate = () => {
-    dispatch(dataActions.terminateLease({ leaseId: lease.id, actorId: user!.id }));
-    dispatch(pushToast({ id: uid('t'), kind: 'success', message: `${lease.code} terminated.` }));
-    setTerminating(false);
-  };
 
   const invoiceColumns: Column<Invoice>[] = [
     { key: 'code', header: 'Invoice', sortValue: (i) => i.code, render: (i) => <span className="font-semibold text-ink-800">{i.code}</span> },
@@ -102,11 +100,12 @@ export function LeaseDetail() {
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="Annual rent" value={<Money value={lease.rent} compact />} icon={<Coins className="h-5 w-5" />} tone="green" />
         <StatCard label="Outstanding" value={<Money value={balance} compact />} icon={<Coins className="h-5 w-5" />} tone={balance > 0 ? 'amber' : 'gray'} />
-        <StatCard label={isActive ? 'Ends in' : 'Ended'} value={isActive ? `${Math.max(0, daysLeft)}d` : formatDate(lease.endDate)} icon={<CalendarClock className="h-5 w-5" />} tone={isActive && daysLeft < 60 ? 'red' : 'blue'} hint={isActive ? formatDate(lease.endDate) : undefined} />
+        <StatCard label={isActive ? 'Ends in' : 'Ended'} value={isActive ? `${Math.max(0, daysLeft)}d` : formatDate(endedOn ?? lease.endDate)} icon={<CalendarClock className="h-5 w-5" />} tone={isActive && daysLeft < 60 ? 'red' : 'blue'}
+          hint={isActive ? formatDate(lease.endDate) : endedOn && endedOn !== lease.endDate ? `Ended early · contract ran to ${formatDate(lease.endDate)}` : undefined} />
         <StatCard label="Deposit held" value={<Money value={depositHeld(lease)} compact />} hint={`of ₦${(lease.securityDeposit ?? 0).toLocaleString('en-NG')} required`} icon={<ShieldCheck className="h-5 w-5" />} tone="purple" />
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-3">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-5 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">
           <SectionCard title="Invoices" subtitle={`${invoices.length} invoices under this lease`} bodyClassName="p-0">
             <DataTable columns={invoiceColumns} rows={invoices} keyOf={(i) => i.id} onRowClick={(i) => navigate(`/invoices/${i.id}`)} pageSize={8} initialSort={{ key: 'issue', dir: 'desc' }} emptyTitle="No invoices" />
@@ -121,6 +120,7 @@ export function LeaseDetail() {
             <dl>
               <KeyValue label="Start date">{formatDate(lease.startDate)}</KeyValue>
               <KeyValue label="End date">{formatDate(lease.endDate)}</KeyValue>
+              {lease.status === 'terminated' && endedOn && <KeyValue label="Terminated on">{formatDate(endedOn)}</KeyValue>}
               <KeyValue label="Billing cycle"><span className="capitalize">{lease.billingCycle}</span></KeyValue>
               <KeyValue label="Notice period">{lease.noticePeriodDays} days</KeyValue>
               <KeyValue label="Agreement">{lease.signed ? <Badge tone="green" dot>Signed</Badge> : <Badge tone="amber" dot>Unsigned</Badge>}</KeyValue>
@@ -146,7 +146,7 @@ export function LeaseDetail() {
         dispatch(pushToast({ id: uid('t'), kind: 'success', message: `${lease.code} renewed to ${formatDate(newEnd)}.` }));
         setRenewing(false);
       }} />}
-      <ConfirmDialog open={terminating} onClose={() => setTerminating(false)} onConfirm={doTerminate} danger title="Terminate this lease?" message={`${lease.code} will be ended and Unit ${unit?.code ?? ''} released back to available. Any utility use still unbilled on the unit's meters is billed to the tenant now, so log the final readings first. This can't be undone.`} confirmLabel="Terminate lease" />
+      {terminating && <TerminateLeaseModal lease={lease} unitCode={unit?.code} tenantName={tenant?.name} onClose={() => setTerminating(false)} />}
     </div>
   );
 }

@@ -118,6 +118,24 @@ describe('tenant lease page', () => {
     expect(screen.queryByText('Days remaining')).toBeNull();
     expect(screen.getByText('Ended early')).toBeInTheDocument();
   });
+
+  it('says the day a lease ended early, which is not the contract end date', () => {
+    renderPortal(<PortalLease />, [], { status: 'terminated', terminatedOn: '2026-11-20' });
+
+    expect(screen.getByText('Ended on').parentElement).toHaveTextContent('20 Nov 2026');
+    expect(screen.getByText('End date').parentElement).toHaveTextContent('31 Dec 2026');
+  });
+
+  it('says when a lease that ran out ended, and nothing for one that is still running', () => {
+    renderPortal(<PortalLease />, [], { status: 'expired', endDate: '2026-10-15' });
+    expect(screen.getByText('Ended on').parentElement).toHaveTextContent('15 Oct 2026');
+  });
+
+  it('has no "ended on" line while the lease runs', () => {
+    renderPortal(<PortalLease />, []);
+
+    expect(screen.queryByText('Ended on')).toBeNull();
+  });
 });
 
 describe('tenant deposit history', () => {

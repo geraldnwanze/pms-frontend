@@ -21,8 +21,8 @@ import { RecordPaymentModal } from '@/components/RecordPaymentModal';
 import { PaymentReviewModal } from '@/components/PaymentReviewModal';
 import { invoiceStatusMeta, paymentStatusMeta, maintenanceStatusMeta, leaseStatusMeta, urgencyMeta } from '@/lib/status';
 import { DEPOSIT_ENTRY_TENANT_LABEL, depositHeld, depositOutstanding } from '@/lib/deposit';
-import { unbilledChargeTotal } from '@/lib/usage';
-import { formatDate, formatDateTime, fromNow, formatNumber, daysUntil, uid } from '@/lib/format';
+import { unbilledChargeTotal, leaseEndedOn } from '@/lib/usage';
+import { formatDate, formatDateTime, fromNow, formatNumber, daysUntil, today, uid } from '@/lib/format';
 import type { Invoice, Lease, Payment, MaintenanceRequest, DocumentRecord, MaintenanceUrgency } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -213,6 +213,9 @@ export function PortalLease() {
 
   if (!lease || !unit) return <div><PageHeader title="My Lease" /><Card><EmptyState icon={<FileText className="h-6 w-6" />} title="No active lease" description="You don't have an active lease on file." /></Card></div>;
 
+  // The day the tenancy actually ended (for one ended early that is not the contract's end date), if it has.
+  const endedOn = lease.status === 'terminated' || lease.status === 'expired' ? leaseEndedOn(lease, today()) : null;
+
   return (
     <div>
       <PageHeader title="My Lease" subtitle={`${lease.code} · Unit ${unit.code}`} />
@@ -226,6 +229,7 @@ export function PortalLease() {
               {['active', 'expiring', 'renewed'].includes(lease.status)
                 ? <KeyValue label="Days remaining">{Math.max(0, daysUntil(lease.endDate))} days</KeyValue>
                 : <KeyValue label="Lease"><span className="capitalize">{lease.status === 'terminated' ? 'Ended early' : 'Ended'}</span></KeyValue>}
+              {endedOn && <KeyValue label="Ended on">{formatDate(endedOn)}</KeyValue>}
             </dl>
             <dl>
               <KeyValue label="Annual rent"><Money value={lease.rent} /></KeyValue>
