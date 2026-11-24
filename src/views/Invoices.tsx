@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from '@/lib/router';
 import { Plus, Wallet, Coins, AlertTriangle, TrendingUp, BellRing } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { selectData, selectCurrentUser, scopedPropertyIds, invoiceOutstanding, isOverdue } from '@/store/selectors';
+import { selectData, selectCurrentUser, scopedPropertyIds, invoiceOutstanding, isOverdue, selectModuleOn } from '@/store/selectors';
 import { dataActions } from '@/store/dataSlice';
 import { pushToast } from '@/store/uiSlice';
 import { api, ApiError } from '@/lib/api';
@@ -15,7 +15,7 @@ import {
 import { invoiceStatusMeta } from '@/lib/status';
 import { useAutoDebitOverview } from '@/hooks/useAutoDebitOverview';
 import { AutoDebitBadge } from '@/components/AutoDebitBadge';
-import { can } from '@/config/roles';
+import { can, isAdminRole } from '@/config/roles';
 import { formatDate, today, addMonths, uid, classNames } from '@/lib/format';
 import type { Invoice, InvoiceStatus, PaymentType, BillingCycle } from '@/types';
 import { monthsInCycle, periodShare } from '@/lib/billing';
@@ -42,7 +42,8 @@ export function Invoices() {
   const autoDebit = useAutoDebitOverview();
   const [adFilter, setAdFilter] = useState<'all' | 'on' | 'attention'>('all');
 
-  const canRemind = ['admin', 'owner', 'manager', 'finance'].includes(user?.role ?? '');
+  const remindersOn = useAppSelector(selectModuleOn('reminders'));
+  const canRemind = remindersOn && (isAdminRole(user?.role) || ['owner', 'manager', 'finance'].includes(user?.role ?? ''));
 
   const sendReminders = async () => {
     setReminding(true);

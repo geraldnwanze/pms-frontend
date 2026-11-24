@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from '@/lib/router';
 import { FileText, Plus, CalendarClock, Coins, CheckCircle2, BellRing } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { selectData, selectCurrentUser, scopedPropertyIds, currentLeaseForUnit, isLeaseExpiring } from '@/store/selectors';
+import { selectData, selectCurrentUser, scopedPropertyIds, currentLeaseForUnit, isLeaseExpiring, selectModuleOn } from '@/store/selectors';
 import { dataActions } from '@/store/dataSlice';
 import { pushToast } from '@/store/uiSlice';
 import { api, ApiError } from '@/lib/api';
@@ -13,7 +13,7 @@ import {
   Modal, Field, Input, Select,
 } from '@/components/ui';
 import { leaseStatusMeta } from '@/lib/status';
-import { can } from '@/config/roles';
+import { can, isAdminRole } from '@/config/roles';
 import { formatDate, today, addMonths, daysUntil, uid, classNames } from '@/lib/format';
 import type { Lease, LeaseStatus, BillingCycle } from '@/types';
 
@@ -37,7 +37,8 @@ export function Leases() {
   const [creating, setCreating] = useState(false);
   const [reminding, setReminding] = useState(false);
 
-  const canRemind = ['admin', 'owner', 'manager', 'finance'].includes(user?.role ?? '');
+  const remindersOn = useAppSelector(selectModuleOn('reminders'));
+  const canRemind = remindersOn && (isAdminRole(user?.role) || ['owner', 'manager', 'finance'].includes(user?.role ?? ''));
 
   const sendReminders = async () => {
     setReminding(true);

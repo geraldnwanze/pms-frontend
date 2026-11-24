@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, apiFetch, authToken, setAuthToken, setUnauthorizedHandler } from './api';
+import { ApiError, apiFetch, authToken, setAuthToken, setModuleOffHandler, setUnauthorizedHandler } from './api';
 
 function reply(status: number, body: unknown) {
   return vi.fn(async () => new Response(body === undefined ? null : typeof body === 'string' ? body : JSON.stringify(body), { status }));
 }
 
 describe('apiFetch', () => {
-  beforeEach(() => setUnauthorizedHandler(null));
-  afterEach(() => setUnauthorizedHandler(null));
+  beforeEach(() => { setUnauthorizedHandler(null); setModuleOffHandler(null); });
+  afterEach(() => { setUnauthorizedHandler(null); setModuleOffHandler(null); });
 
   it('unwraps the {data,message,meta} envelope', async () => {
     vi.stubGlobal('fetch', reply(200, { data: { id: 1 }, message: 'ok', meta: { page: 2 } }));
@@ -54,6 +54,35 @@ describe('apiFetch', () => {
     vi.stubGlobal('fetch', reply(401, { message: 'Unauthenticated.' }));
     await apiFetch('/x').catch(() => {});
     expect(handler).toHaveBeenCalledOnce();
+  });
+
+  it('tells the module-off handler which module refused a request, and still throws the error', async () => {
+    const handler = vi.fn();
+    setModuleOffHandler(handler);
+    vi.stubGlobal('fetch', reply(403, { message: 'The Utilities & meters module is turned off.', errors: null, module: 'utilities' }));
+
+    const err = await apiFetch('/meters').catch((e) => e);
+
+    expect(handler).toHaveBeenCalledOnce();
+    expect(handler).toHaveBeenCalledWith('utilities', 'The Utilities & meters module is turned off.');
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err).toMatchObject({ status: 403, message: 'The Utilities & meters module is turned off.' });
+  });
+
+  it('does not call the module-off handler for any other refusal', async () => {
+    const handler = vi.fn();
+    setModuleOffHandler(handler);
+
+    vi.stubGlobal('fetch', reply(403, { message: 'This action is unauthorized.', errors: null }));
+    await apiFetch('/x').catch(() => {});
+    vi.stubGlobal('fetch', reply(404, { message: 'Not found', module: 'utilities' }));       // only a 403 means "turned off"
+    await apiFetch('/x').catch(() => {});
+    vi.stubGlobal('fetch', reply(422, { message: 'Invalid', errors: { a: ['b'] } }));
+    await apiFetch('/x').catch(() => {});
+    vi.stubGlobal('fetch', reply(200, { data: null, module: 'utilities' }));
+    await apiFetch('/x');
+
+    expect(handler).not.toHaveBeenCalled();
   });
 
   it('falls back to a generic message for non-JSON errors', async () => {

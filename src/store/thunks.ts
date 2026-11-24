@@ -20,6 +20,54 @@ export function announceSessionEnded(dispatch: AppDispatch, getState: () => Root
   if (!getState().ui.toasts.some((t) => t.message === message)) toast(dispatch, 'info', message);
 }
 
+let checkingModules = false;
+
+/**
+ * Ask the server which modules are on and, only if that differs from what the app knows, reload everything so the menu, the
+ * screens and the data follow. This is the catch-up for a change the app was never refused over (a module switched back on, or
+ * off in a screen nobody has touched). One check at a time; any failure is ignored (the next one will try again); nothing happens
+ * before the app has loaded or when nobody is signed in.
+ */
+export function syncModules(): Thunk<boolean> {
+  return async (dispatch, getState) => {
+    const known = getState().data.modules;
+    if (checkingModules || !getState().auth.currentUserId || !getState().auth.dataReady || !known) return false;
+    checkingModules = true;
+    try {
+      const rows = await api.modules();
+      const changed = rows.some((r) => (known[r.key] !== false) !== r.enabled);
+      if (changed) await dispatch(bootstrap());
+      return changed;
+    } catch {
+      return false;
+    } finally {
+      checkingModules = false;
+    }
+  };
+}
+
+let refreshingForModule = false;
+
+/**
+ * A request was refused because its module is turned off. If the app did not already know, a superadmin switched it off since this
+ * page loaded: say so once and reload, so the menu, the screens and the data follow. If the app already knew, nothing changes
+ * (the failing request is a screen that has not caught up, and reloading again would not help). One reload at a time, however
+ * many requests fail together.
+ */
+export function moduleTurnedOff(module: string, message: string): Thunk {
+  return async (dispatch, getState) => {
+    if (refreshingForModule || !getState().auth.currentUserId) return;
+    if (getState().data.modules?.[module] === false) return;
+    refreshingForModule = true;
+    try {
+      if (!getState().ui.toasts.some((t) => t.message === message)) toast(dispatch, 'info', message);
+      await dispatch(bootstrap());
+    } finally {
+      refreshingForModule = false;
+    }
+  };
+}
+
 /** Pull the full (RBAC-scoped) dataset from the v1 API into the store. */
 export function bootstrap(): Thunk<boolean> {
   return async (dispatch, getState) => {
@@ -315,6 +363,29 @@ export function saveIntegrations(patch: import('@/types').IntegrationsMap): Thun
     } catch (err) {
       toast(dispatch, 'error', err instanceof ApiError ? fieldError(err) ?? err.message : 'Could not save.');
       return false;
+    }
+  };
+}
+
+// ---- Platform modules (superadmin) --------------------------------------
+
+/**
+ * Switch a module on or off. Switching one off also switches off the modules that need it; until `cascade` is set the server
+ * refuses with a list of those, which comes back here as `dependents` for the caller to confirm. On success the store is
+ * reloaded, so the menu, the screens and the data all follow the new states.
+ */
+export function setModuleEnabled(key: string, enabled: boolean, cascade = false): Thunk<{ ok: boolean; dependents?: string[] }> {
+  return async (dispatch) => {
+    try {
+      await api.setModule(key, enabled, cascade);
+      await dispatch(bootstrap());
+      return { ok: true };
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 422 && err.errors?.dependents) {
+        return { ok: false, dependents: err.errors.dependents };
+      }
+      toast(dispatch, 'error', err instanceof ApiError ? fieldError(err) ?? err.message : 'Could not change the module.');
+      return { ok: false };
     }
   };
 }

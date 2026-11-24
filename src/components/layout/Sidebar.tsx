@@ -3,7 +3,7 @@
 import { NavLink, useLocation } from '@/lib/router';
 import { Building2, ChevronLeft, X, LogOut } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { selectCurrentUser, scopedPropertyIds, selectNotificationsForCurrentUser } from '@/store/selectors';
+import { selectCurrentUser, selectModules, scopedPropertyIds, selectNotificationsForCurrentUser } from '@/store/selectors';
 import { setSidebarOpen, toggleSidebarCollapsed } from '@/store/uiSlice';
 import { signOut } from '@/store/thunks';
 import { useNavigate } from '@/lib/router';
@@ -28,7 +28,8 @@ function SidebarContent({ collapsed, onNavigate }: { collapsed: boolean; onNavig
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const user = useAppSelector(selectCurrentUser);
-  const groups = user ? navForRole(user.role) : [];
+  const modules = useAppSelector(selectModules);
+  const groups = user ? navForRole(user.role, modules) : [];
   const allPaths = groups.flatMap((g) => g.items.map((i) => i.path));
   const isActive = useActiveMatcher();
 

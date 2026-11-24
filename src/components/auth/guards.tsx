@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { selectCurrentUser } from '@/store/selectors';
+import { selectCurrentUser, selectModules } from '@/store/selectors';
+import { isModuleOn, moduleForPath } from '@/config/modules';
 import { bootstrap } from '@/store/thunks';
 import type { Role } from '@/types';
 
@@ -86,6 +88,11 @@ export function BootstrapGate({ children }: { children: ReactNode }) {
 }
 
 /** Gate that requires the user's role to be in `roles`. */
+/** A superadmin is an admin: any screen that admits an admin admits them too. */
+function allowed(roles: Role[], role: Role): boolean {
+  return roles.includes(role) || (role === 'superadmin' && roles.includes('admin'));
+}
+
 export function RequireRole({ roles, children }: { roles: Role[]; children: ReactNode }) {
   const userId = useAppSelector((s) => s.auth.currentUserId);
   const user = useAppSelector(selectCurrentUser);
@@ -97,14 +104,14 @@ export function RequireRole({ roles, children }: { roles: Role[]; children: Reac
       router.replace('/login');
       return;
     }
-    if (dataReady && user && !roles.includes(user.role)) {
+    if (dataReady && user && !allowed(roles, user.role)) {
       router.replace(homePath(user.role));
     }
   }, [userId, user, dataReady, roles, router]);
 
   if (!userId) return <Splash />;
   if (!dataReady || !user) return <Splash />;
-  if (!roles.includes(user.role)) return <Splash />;
+  if (!allowed(roles, user.role)) return <Splash />;
   return <>{children}</>;
 }
 
@@ -138,4 +145,28 @@ export function HomeRedirect() {
     if (user) router.replace(homePath(user.role));
   }, [user, userId, router]);
   return <Splash />;
+}
+
+/**
+ * Shows a screen only while the module it belongs to is on. A page of a module that is off (opened from a bookmark or an old
+ * link) gets an explanation instead; a superadmin is pointed at the screen that turns it back on.
+ */
+export function RequireModule({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  const user = useAppSelector(selectCurrentUser);
+  const modules = useAppSelector(selectModules);
+  const key = moduleForPath(pathname ?? '');
+
+  if (isModuleOn(modules, key)) return <>{children}</>;
+
+  return (
+    <div data-testid="module-off" className="mx-auto mt-16 max-w-md rounded-2xl border border-ink-200 bg-white p-8 text-center shadow-sm">
+      <h1 className="text-lg font-semibold text-ink-900">This module is turned off</h1>
+      <p className="mt-2 text-sm text-ink-500">It has been switched off for the whole platform, so this screen isn’t available right now. Nothing has been deleted.</p>
+      <div className="mt-5 flex justify-center gap-2">
+        <Link href={homePath(user?.role)} className="btn-secondary">Go to your home</Link>
+        {user?.role === 'superadmin' && <Link href="/modules" className="btn-primary">Open Modules</Link>}
+      </div>
+    </div>
+  );
 }

@@ -13,7 +13,7 @@ import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { selectData, selectCurrentUser, selectMemberships, propertyPerformance, tenantForUnit, unitBalance } from '@/store/selectors';
 import { inviteMember, revokeMember } from '@/store/thunks';
 import { api } from '@/lib/api';
-import { ROLE_LABELS } from '@/config/roles';
+import { ROLE_LABELS, isAdminRole } from '@/config/roles';
 import { AddBuildingModal, AddUnitModal, EditBuildingModal, EditPropertyModal, EditUnitModal } from '@/components/StructureModals';
 import { buildingTypeLabel } from '@/config/buildings';
 import { coverImage, imageUrls } from '@/lib/media';
@@ -47,7 +47,7 @@ export function PropertyDetail() {
     | { kind: 'editUnit'; unitId: string }
   >(null);
 
-  const myRoleHere = me?.role === 'admin'
+  const myRoleHere = isAdminRole(me?.role)
     ? 'admin'
     : memberships.find((m) => m.propertyId === id && m.status === 'active')?.role;
   const canManageTeam = myRoleHere === 'admin' || myRoleHere === 'owner' || myRoleHere === 'manager';

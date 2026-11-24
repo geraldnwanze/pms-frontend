@@ -13,10 +13,10 @@ import { api } from '@/lib/api';
 const mocked = vi.mocked(api);
 const overview = { invoices: {} } as unknown as AutoDebitOverview;
 
-function setup(role: string | null) {
+function setup(role: string | null, modules?: Record<string, boolean>) {
   const store = makeTestStore();
   if (role) {
-    store.dispatch(dataActions.hydrateAll({ users: [{ id: 'u1', role, name: 'U', email: 'u@x.test' }] } as never));
+    store.dispatch(dataActions.hydrateAll({ users: [{ id: 'u1', role, name: 'U', email: 'u@x.test' }], modules: modules ?? null } as never));
     store.dispatch(login({ userId: 'u1', token: 't' }));
   }
   const wrapper = ({ children }: { children: ReactNode }) => <Provider store={store}>{children}</Provider>;
@@ -27,7 +27,7 @@ beforeEach(() => vi.clearAllMocks());
 
 describe('useAutoDebitOverview', () => {
   it('lists the staff roles that may see auto-debit state', () => {
-    expect(AUTO_DEBIT_STAFF_ROLES).toEqual(['admin', 'owner', 'manager', 'finance']);
+    expect(AUTO_DEBIT_STAFF_ROLES).toEqual(['superadmin', 'admin', 'owner', 'manager', 'finance']);
   });
 
   it('does not call the API when nobody is signed in', () => {
@@ -55,5 +55,19 @@ describe('useAutoDebitOverview', () => {
     const { result } = setup('manager');
     await waitFor(() => expect(mocked.autoDebitOverview).toHaveBeenCalled());
     expect(result.current).toBeNull();
+  });
+
+  it('makes no request while the Auto-debit module is off', async () => {
+    mocked.autoDebitOverview.mockResolvedValue(overview);
+    const { result } = setup('manager', { 'auto-debit': false });
+    await Promise.resolve();
+    expect(mocked.autoDebitOverview).not.toHaveBeenCalled();
+    expect(result.current).toBeNull();
+  });
+
+  it('still loads when some other module is off', async () => {
+    mocked.autoDebitOverview.mockResolvedValue(overview);
+    const { result } = setup('manager', { utilities: false });
+    await waitFor(() => expect(result.current).toBe(overview));
   });
 });

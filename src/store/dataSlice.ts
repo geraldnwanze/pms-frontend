@@ -19,7 +19,7 @@ export function emptyData(): DataState {
     inspections: [], meters: [], listings: [], leads: [], documents: [],
     notifications: [], notices: [], messages: [], audit: [], tasks: [], events: [],
     maintenancePayouts: [], memberships: [], invitations: [],
-    settings: null, integrations: {}, rbac: null, dashboard: null, portal: null,
+    settings: null, integrations: {}, rbac: null, modules: null, dashboard: null, portal: null,
   };
 }
 

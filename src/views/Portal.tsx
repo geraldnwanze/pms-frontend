@@ -8,7 +8,8 @@ import {
   AlertTriangle, Megaphone, CalendarClock, Gauge,
 } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { selectData, selectCurrentUser, selectPortal, invoiceOutstanding } from '@/store/selectors';
+import { selectData, selectCurrentUser, selectPortal, selectModules, invoiceOutstanding } from '@/store/selectors';
+import { isModuleOn } from '@/config/modules';
 import { fetchPortal, confirmMaintenanceDone } from '@/store/thunks';
 import { AutoDebitCard } from '@/components/AutoDebitCard';
 import { dataActions } from '@/store/dataSlice';
@@ -63,6 +64,9 @@ export function PortalHome() {
   const dispatch = useAppDispatch();
   const ctx = useTenantCtx();
   const portal = useAppSelector(selectPortal);
+  const modules = useAppSelector(selectModules);
+  const maintenanceOn = isModuleOn(modules, 'maintenance');
+  const noticesOn = isModuleOn(modules, 'communications');
   const [reviewId, setReviewId] = useState<string | null>(null);
 
   // The resident home is server-computed (GET /api/v1/portal). `bootstrap()`
@@ -120,7 +124,7 @@ export function PortalHome() {
         {/* Quick facts */}
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-1">
           <StatCard label="Lease status" value={lease ? leaseStatusMeta(lease.status).label : 'None'} icon={<FileText className="h-5 w-5" />} tone={lease ? 'green' : 'gray'} onClick={() => navigate('/portal/lease')} />
-          <StatCard label="Open requests" value={openJobsCount} icon={<Wrench className="h-5 w-5" />} tone={openJobsCount ? 'cyan' : 'gray'} onClick={() => navigate('/portal/maintenance')} />
+          {maintenanceOn && <StatCard label="Open requests" value={openJobsCount} icon={<Wrench className="h-5 w-5" />} tone={openJobsCount ? 'cyan' : 'gray'} onClick={() => navigate('/portal/maintenance')} />}
           {unitMeters.length > 0 && (
             <div className="col-span-2 lg:col-span-1">
               <StatCard label="Utilities not yet billed" value={<Money value={utilitiesDue} />} hint={`${unitMeters.length} meter${unitMeters.length > 1 ? 's' : ''} on your unit`} icon={<Gauge className="h-5 w-5" />} tone={utilitiesDue > 0 ? 'amber' : 'gray'} onClick={() => navigate('/portal/utilities')} />
@@ -150,7 +154,7 @@ export function PortalHome() {
           )}
         </SectionCard>
 
-        <SectionCard title="Notices" action={<button className="text-sm font-medium text-brand-600 hover:underline" onClick={() => navigate('/portal/notices')}>View all</button>}>
+        {noticesOn && <SectionCard title="Notices" action={<button className="text-sm font-medium text-brand-600 hover:underline" onClick={() => navigate('/portal/notices')}>View all</button>}>
           {notices.length === 0 ? <EmptyState title="No notices" /> : (
             <div className="space-y-2">
               {notices.slice(0, 3).map((n) => (
@@ -162,7 +166,7 @@ export function PortalHome() {
               ))}
             </div>
           )}
-        </SectionCard>
+        </SectionCard>}
       </div>
 
       {reviewId && <PaymentReviewModal paymentId={reviewId} onClose={() => setReviewId(null)} />}

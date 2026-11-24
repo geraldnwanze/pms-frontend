@@ -14,9 +14,7 @@ import {
   PageHeader, Card, SectionCard, StatCard, Badge, Avatar, DataTable, type Column,
   Tabs, Modal, Field, Select, EmptyState, ExportMenu,
 } from '@/components/ui';
-import {
-  ROLE_LABELS, ROLE_COLORS, ROLE_PERMISSIONS, PERMISSION_LABELS, ALL_ROLES, can,
-} from '@/config/roles';
+import { ROLE_LABELS, ROLE_COLORS, ROLE_PERMISSIONS, PERMISSION_LABELS, ALL_ROLES, can, isAdminRole } from '@/config/roles';
 import { formatDateTime, fromNow, uid, classNames } from '@/lib/format';
 import type { Tone } from '@/lib/status';
 import type { User, Role, Permission, AuditLog, AuditAction } from '@/types';
@@ -41,7 +39,7 @@ export function UsersRoles() {
   );
 
   const scopeLabel = (u: User): string => {
-    if (u.role === 'admin') return 'All properties';
+    if (isAdminRole(u.role)) return 'All properties';
     if (u.role === 'owner') return `${data.properties.filter((p) => p.owners.some((o) => o.ownerId === u.id)).length} owned`;
     if (u.role === 'tenant') return u.tenantId ? 'Own unit' : '—';
     const ids = new Set(u.assignedPropertyIds ?? []);
@@ -73,9 +71,11 @@ export function UsersRoles() {
     ) },
     { key: 'scope', header: 'Scope', render: (u) => <span className="text-sm text-ink-600">{scopeLabel(u)}</span> },
     { key: '2fa', header: '2FA', align: 'center', render: (u) => u.twoFactorEnabled ? <Badge tone="green">On</Badge> : <Badge tone="gray">Off</Badge> },
-    { key: 'login', header: 'Last login', sortValue: (u) => u.lastLoginAt ?? '', render: (u) => <span className="text-sm text-ink-500">{u.lastLoginAt ? fromNow(u.lastLoginAt) : 'Never'}</span> },
+    // Below `lg` the table is narrower than its card, so drop the least useful column and keep the edit button where it can be reached.
+    { key: 'login', header: 'Last login', className: 'hidden lg:table-cell', headerClassName: 'hidden lg:table-cell', sortValue: (u) => u.lastLoginAt ?? '', render: (u) => <span className="text-sm text-ink-500">{u.lastLoginAt ? fromNow(u.lastLoginAt) : 'Never'}</span> },
     { key: 'status', header: 'Status', sortValue: (u) => u.status, render: (u) => <Badge tone={STATUS_TONE[u.status]} dot={u.status === 'active'}>{tc(u.status)}</Badge> },
-    { key: 'actions', header: '', align: 'right', render: (u) => canManage ? (
+    // A superadmin account can only be edited by a superadmin (an admin could otherwise set its password and sign in as it).
+    { key: 'actions', header: '', align: 'right', className: 'sticky right-0 bg-white', headerClassName: 'sticky right-0 bg-ink-50', render: (u) => canManage && (u.role !== 'superadmin' || me?.role === 'superadmin') ? (
       <button className="rounded-lg p-1.5 text-ink-400 hover:bg-ink-100 hover:text-ink-600" title="Edit user" onClick={() => setEditing(u)}><Pencil className="h-4 w-4" /></button>
     ) : null },
   ];
@@ -154,6 +154,9 @@ function EditUserModal({ user, isSelf, onClose }: { user: User; isSelf: boolean;
   const [role, setRole] = useState<Role>(user.role);
   const [status, setStatus] = useState<User['status']>(user.status);
   const [twoFA, setTwoFA] = useState(user.twoFactorEnabled);
+  // A superadmin's role and status are changed on the server (php artisan pms:make-superadmin), never from this screen.
+  const managedOnServer = user.role === 'superadmin';
+  const lockRoleAndStatus = isSelf || managedOnServer;
 
   const save = () => {
     const changes: Partial<User> = {};
@@ -174,10 +177,12 @@ function EditUserModal({ user, isSelf, onClose }: { user: User; isSelf: boolean;
           <Avatar name={user.name} color={user.avatarColor} size={44} />
           <div className="min-w-0"><p className="truncate font-semibold text-ink-800">{user.name}</p><p className="truncate text-xs text-ink-500">{user.email}</p></div>
         </div>
-        {isSelf && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">You can't change your own role or status — ask another administrator.</p>}
+        {managedOnServer
+          ? <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">A superadmin's role and status are managed from the command line (<code>php artisan pms:make-superadmin</code>), not here.</p>
+          : isSelf && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">You can't change your own role or status — ask another administrator.</p>}
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Role"><Select value={role} disabled={isSelf} onChange={(e) => setRole(e.target.value as Role)}>{ALL_ROLES.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}</Select></Field>
-          <Field label="Status"><Select value={status} disabled={isSelf} onChange={(e) => setStatus(e.target.value as User['status'])}>{(['active', 'inactive', 'invited'] as const).map((s) => <option key={s} value={s}>{tc(s)}</option>)}</Select></Field>
+          <Field label="Role"><Select value={role} disabled={lockRoleAndStatus} onChange={(e) => setRole(e.target.value as Role)}>{(managedOnServer ? ['superadmin' as Role, ...ALL_ROLES] : ALL_ROLES).map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}</Select></Field>
+          <Field label="Status"><Select value={status} disabled={lockRoleAndStatus} onChange={(e) => setStatus(e.target.value as User['status'])}>{(['active', 'inactive', 'invited'] as const).map((s) => <option key={s} value={s}>{tc(s)}</option>)}</Select></Field>
         </div>
         <div className="flex items-center justify-between rounded-xl border border-ink-200 px-4 py-3">
           <div><p className="text-sm font-semibold text-ink-800">Two-factor authentication</p><p className="text-xs text-ink-500">Require a one-time code at sign-in.</p></div>
@@ -287,7 +292,7 @@ export function Integrations() {
   const me = useAppSelector(selectCurrentUser);
   const stored = useAppSelector((s) => s.data.integrations);
   const dispatch = useAppDispatch();
-  const isAdmin = me?.role === 'admin';
+  const isAdmin = isAdminRole(me?.role);
   const [pending, setPending] = useState<string | null>(null);
 
   const state: Record<string, boolean> = Object.fromEntries(

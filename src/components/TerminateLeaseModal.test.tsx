@@ -186,4 +186,34 @@ describe('TerminateLeaseModal', () => {
     expect(onClose).toHaveBeenCalled();
     expect(api.terminateLease).not.toHaveBeenCalled();
   });
+
+  describe('when the Utilities module is off', () => {
+    const utilitiesOff = { modules: { utilities: false } };
+
+    it('is just a confirmation: no readings to take, no final bill, and it says why', () => {
+      open(undefined, utilitiesOff);
+
+      expect(screen.queryByTestId('closing-meters')).toBeNull();
+      expect(screen.getByTestId('final-bill-summary')).toHaveTextContent('Utilities is turned off, so no final utility bill is raised.');
+      expect(screen.getByTestId('final-bill-summary')).not.toHaveTextContent('₦');
+      expect(screen.getByRole('button', { name: 'Terminate lease' })).toBeEnabled();
+    });
+
+    it('ends the lease with no closing readings even though the unit has meters', async () => {
+      vi.mocked(api.terminateLease).mockResolvedValue({ data: {}, message: null, meta: { finalBill: null } } as never);
+      const { onClose } = open(undefined, utilitiesOff);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Terminate lease' }));
+
+      await waitFor(() => expect(onClose).toHaveBeenCalled());
+      expect(api.terminateLease).toHaveBeenCalledWith('l1', []);
+    });
+
+    it('is unaffected when some other module is the one that is off', () => {
+      open(undefined, { modules: { maintenance: false } });
+
+      expect(screen.getAllByTestId('closing-meter')).toHaveLength(2);
+      expect(screen.getByRole('button', { name: 'Terminate & bill ₦11,000' })).toBeEnabled();
+    });
+  });
 });

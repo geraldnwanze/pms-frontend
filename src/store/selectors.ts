@@ -5,6 +5,7 @@ import type {
   User, Unit, Lease, Invoice, Payment, Property, Tenant, AppNotification,
 } from '@/types';
 import { today, daysUntil } from '@/lib/format';
+import { isModuleOn, type ModuleKey } from '@/config/modules';
 
 // ---- Raw slice selectors (stable references) -------------------------------
 
@@ -35,6 +36,9 @@ export const selectInvitations = (s: RootState) => s.data.invitations;
 export const selectSettings = (s: RootState) => s.data.settings;
 export const selectIntegrations = (s: RootState) => s.data.integrations;
 export const selectRbac = (s: RootState) => s.data.rbac;
+export const selectModules = (s: RootState) => s.data.modules;
+/** Whether one module is on (see isModuleOn: on until the states have loaded). */
+export const selectModuleOn = (key: ModuleKey) => (s: RootState) => isModuleOn(s.data.modules, key);
 export const selectDashboard = (s: RootState) => s.data.dashboard;
 export const selectPortal = (s: RootState) => s.data.portal;
 

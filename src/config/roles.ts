@@ -1,7 +1,8 @@
 import type { Role, Permission } from '@/types';
 
 export const ROLE_LABELS: Record<Role, string> = {
-  admin: 'Super Admin',
+  superadmin: 'Super Admin',
+  admin: 'Admin',
   owner: 'Property Owner',
   manager: 'Property Manager',
   agent: 'Real Estate Agent',
@@ -12,6 +13,7 @@ export const ROLE_LABELS: Record<Role, string> = {
 };
 
 export const ROLE_DESCRIPTIONS: Record<Role, string> = {
+  superadmin: 'Everything an admin can do, and the only role that switches platform modules on and off.',
   admin: 'Full system access across all owners, properties and settings.',
   owner: 'Owns properties — sees portfolio performance, finances and reports.',
   manager: 'Runs day-to-day operations for assigned properties.',
@@ -23,6 +25,7 @@ export const ROLE_DESCRIPTIONS: Record<Role, string> = {
 };
 
 export const ROLE_COLORS: Record<Role, string> = {
+  superadmin: '#4c1d95',
   admin: '#7c3aed',
   owner: '#059669',
   manager: '#0284c7',
@@ -35,6 +38,7 @@ export const ROLE_COLORS: Record<Role, string> = {
 
 /** Permission matrix per role (drives the Users & Roles screen and UI gating). */
 export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
+  superadmin: ['view', 'create', 'edit', 'delete', 'approve', 'reject', 'export', 'manage_payments', 'manage_users', 'manage_documents', 'manage_financials', 'manage_modules'],
   admin: ['view', 'create', 'edit', 'delete', 'approve', 'reject', 'export', 'manage_payments', 'manage_users', 'manage_documents', 'manage_financials'],
   owner: ['view', 'export', 'manage_financials'],
   manager: ['view', 'create', 'edit', 'approve', 'reject', 'export', 'manage_payments', 'manage_documents'],
@@ -57,6 +61,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   manage_users: 'Manage users',
   manage_documents: 'Manage documents',
   manage_financials: 'Manage financials',
+  manage_modules: 'Switch modules on and off',
 };
 
 export function can(role: Role | undefined, permission: Permission): boolean {
@@ -71,7 +76,7 @@ export function can(role: Role | undefined, permission: Permission): boolean {
  * Row-level scope (only their own properties) is enforced server-side.
  */
 export function canManageStructure(role: Role | undefined): boolean {
-  return role === 'admin' || role === 'owner' || role === 'manager';
+  return isAdminRole(role) || role === 'owner' || role === 'manager';
 }
 
 /** Registering a new property: the structural roles, plus a plain registered account starting out. Mirrors `config/rbac.php`. */
@@ -85,7 +90,15 @@ export function canRegisterProperty(role: Role | undefined): boolean {
  * record payments (via `manage_payments`) but not sign them off.
  */
 export function canApprovePayments(role: Role | undefined): boolean {
-  return role === 'finance' || role === 'admin';
+  return role === 'finance' || isAdminRole(role);
 }
 
+/** Roles that see and manage the whole platform. */
+export const ADMIN_ROLES: Role[] = ['superadmin', 'admin'];
+
+export function isAdminRole(role: Role | string | null | undefined): boolean {
+  return role === 'superadmin' || role === 'admin';
+}
+
+/** The roles that can be given to a person through the Users screen (a superadmin is set up outside the app). */
 export const ALL_ROLES: Role[] = ['admin', 'owner', 'manager', 'finance', 'agent', 'maintenance', 'tenant'];

@@ -4,9 +4,10 @@ import {
   ReceiptText, CreditCard, BadgeCheck, Wallet, Wrench, Truck, ClipboardCheck,
   Megaphone, FileText, MessagesSquare, CalendarDays, ListTodo, BarChart3, PieChart,
   UserCog, Plug, Settings, Store, Contact, Gauge, Home, HandCoins,
-  History, Bell, MailPlus,
+  History, Bell, MailPlus, ToggleRight,
 } from 'lucide-react';
 import type { Role } from '@/types';
+import { isModuleOn, moduleForPath, type ModuleStates } from '@/config/modules';
 
 export interface NavItem {
   label: string;
@@ -94,6 +95,7 @@ export const STAFF_NAV: NavGroup[] = [
       { label: 'Users & Roles', path: '/users', icon: UserCog, roles: ['admin'] },
       { label: 'Audit Logs', path: '/audit', icon: History, roles: ['admin', 'finance'] },
       { label: 'Integrations', path: '/integrations', icon: Plug, roles: ['admin'] },
+      { label: 'Modules', path: '/modules', icon: ToggleRight, roles: ['superadmin'] },
       { label: 'Settings', path: '/settings', icon: Settings, roles: [...ALL_STAFF, 'user'] },
     ],
   },
@@ -128,11 +130,18 @@ export const TENANT_NAV: NavGroup[] = [
   },
 ];
 
-export function navForRole(role: Role): NavGroup[] {
-  if (role === 'tenant') return TENANT_NAV;
+/**
+ * The menu for a role. A screen that belongs to a module that is off is left out (see moduleForPath); with the states
+ * not loaded yet nothing is hidden.
+ */
+export function navForRole(role: Role, modules?: ModuleStates | null): NavGroup[] {
+  const visible = (i: NavItem) => isModuleOn(modules, moduleForPath(i.path));
+  if (role === 'tenant') {
+    return TENANT_NAV.map((g) => ({ ...g, items: g.items.filter(visible) })).filter((g) => g.items.length > 0);
+  }
   return STAFF_NAV.map((g) => ({
     ...g,
-    items: g.items.filter((i) => i.roles.includes(role)),
+    items: g.items.filter((i) => (i.roles.includes(role) || (role === 'superadmin' && i.roles.includes('admin'))) && visible(i)),
   })).filter((g) => g.items.length > 0);
 }
 

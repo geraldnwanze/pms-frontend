@@ -13,7 +13,7 @@ import { pushToast, toggleSidebarCollapsed, setTheme, type ThemePref } from '@/s
 import {
   PageHeader, Card, SectionCard, Tabs, Field, Input, Select, Avatar, Badge,
 } from '@/components/ui';
-import { ROLE_LABELS, ROLE_COLORS } from '@/config/roles';
+import { ROLE_LABELS, ROLE_COLORS, isAdminRole } from '@/config/roles';
 import { uid, classNames } from '@/lib/format';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
 import type { User } from '@/types';
@@ -21,7 +21,7 @@ import type { User } from '@/types';
 export function Settings() {
   const user = useAppSelector(selectCurrentUser)!;
   const [tab, setTab] = useState('profile');
-  const isAdmin = user.role === 'admin';
+  const isAdmin = isAdminRole(user.role);
 
   const tabs = [
     { key: 'profile', label: 'Profile' },

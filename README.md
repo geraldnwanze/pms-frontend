@@ -78,3 +78,22 @@ npm run dump:seed                # regenerate the backend's database/data/seed-d
 
 Everything else — `store/`, `components/`, `config/`, `lib/`, `data/`, `types/`,
 `index.css`, Tailwind config — carried over unchanged.
+
+## Modules
+
+A superadmin switches platform modules on and off (see the backend README, "Modules and the superadmin"). The server sends the
+current states in the bootstrap as `data.modules`; the app hides what is off, and the server is what refuses.
+
+- **Config:** `src/config/modules.ts` — the `ModuleKey` list, `isModuleOn` (a module counts as on until the states have loaded), and
+  `moduleForPath`, which says which module a screen belongs to by path prefix. The menu (`navForRole` in `src/config/nav.ts`) and the
+  route guard both use it, so a screen is hidden and blocked from one place. A core screen has no entry.
+- **Guard:** `RequireModule` (in `src/components/auth/guards.tsx`) wraps the staff and tenant layouts: a page of a module that is off
+  shows "This module is turned off" instead (with a link to `/modules` for a superadmin).
+- **Inside screens:** anything that belongs to a module but sits on another module's screen checks `selectModuleOn('<key>')` itself
+  (the terminate-lease dialog, the auto-debit cards, the payout controls, the Remind buttons, the dashboard tiles, the portal home).
+- **Staying current:** a request refused because its module is off makes the app reload (`moduleTurnedOff`), and the app also
+  re-checks the module list when the browser tab regains focus, at most every 30 seconds (`useModuleSync`).
+- **Modules screen:** `/modules`, superadmin only (`src/views/Modules.tsx`).
+
+To add a module: add its key to `ModuleKey` and its screens to `PATH_MODULES` in `src/config/modules.ts`, then hide whatever else
+it owns inside other screens with `selectModuleOn`. `src/config/modules.test.ts` covers the path map and the menu.

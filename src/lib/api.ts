@@ -19,6 +19,7 @@ import type {
   AutoDebitOverview,
   AutoDebitInvoiceDetail,
 } from '@/types';
+import type { ModuleInfo } from '@/config/modules';
 
 const BASE_URL = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000/api/v1').replace(/\/$/, '');
 
@@ -39,6 +40,12 @@ export function setAuthToken(token: string | null): void {
   } catch {
     /* ignore */
   }
+}
+
+// A single place for the store to learn that a module was switched off since it last loaded (the server answers 403 with the module's key).
+let onModuleOff: ((module: string, message: string) => void) | null = null;
+export function setModuleOffHandler(fn: ((module: string, message: string) => void) | null): void {
+  onModuleOff = fn;
 }
 
 // A single place for the store to react to a hard 401 (token expired/revoked).
@@ -111,6 +118,7 @@ export async function apiFetch<T = unknown>(path: string, opts: Options = {}): P
   if (!res.ok) {
     if (res.status === 401) onUnauthorized?.();
     const message = typeof obj.message === 'string' ? obj.message : `Request to ${path} failed (${res.status})`;
+    if (res.status === 403 && typeof obj.module === 'string') onModuleOff?.(obj.module, message);
     const errors = (obj.errors ?? null) as Record<string, string[]> | null;
     throw new ApiError(message, res.status, errors, payload);
   }
@@ -263,6 +271,12 @@ export const api = {
   owners: () => apiFetch<unknown[]>('/owners').then((e) => e.data),
   staff: () => apiFetch<unknown[]>('/staff').then((e) => e.data),
   rbac: () => apiFetch<Record<string, unknown>>('/rbac').then((e) => e.data),
+
+  // ---- Platform modules (a superadmin switches them) ----
+  modules: () => apiFetch<ModuleInfo[]>('/modules').then((e) => e.data),
+  /** `cascade` also switches off the modules that need this one (the server says which, with a 422, until it is set). */
+  setModule: (key: string, enabled: boolean, cascade = false) =>
+    apiFetch<ModuleInfo[]>(`/modules/${key}`, { method: 'PUT', body: { enabled, cascade } }).then((e) => ({ modules: e.data, changed: ((e.meta ?? {}) as { changed?: string[] }).changed ?? [] })),
 
   // ---- Persisted admin settings ----
   organization: () => apiFetch<OrganizationSettings>('/settings/organization').then((e) => e.data),

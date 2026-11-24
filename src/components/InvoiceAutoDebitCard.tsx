@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Clock, XCircle } from 'lucide-react';
+import { useAppSelector } from '@/store/hooks';
+import { selectModuleOn } from '@/store/selectors';
 import { api } from '@/lib/api';
 import { SectionCard, Money } from '@/components/ui';
 import { AutoDebitBadge, AUTO_DEBIT_STATE_META } from '@/components/AutoDebitBadge';
@@ -13,7 +15,7 @@ import type { AutoDebitInvoiceDetail } from '@/types';
  * Renders nothing when the tenant isn't on auto-debit and nothing was ever attempted, and nothing for
  * roles the API won't answer (it returns 403) — so it is safe to drop on any staff-visible invoice page.
  */
-export function InvoiceAutoDebitCard({ invoiceId }: { invoiceId: string }) {
+function InvoiceAutoDebitCardInner({ invoiceId }: { invoiceId: string }) {
   const [detail, setDetail] = useState<AutoDebitInvoiceDetail | null>(null);
 
   useEffect(() => {
@@ -68,4 +70,10 @@ export function InvoiceAutoDebitCard({ invoiceId }: { invoiceId: string }) {
       )}
     </SectionCard>
   );
+}
+
+/** Renders nothing while the Auto-debit module is turned off (and so makes no request to it). */
+export function InvoiceAutoDebitCard({ invoiceId }: { invoiceId: string }) {
+  const on = useAppSelector(selectModuleOn('auto-debit'));
+  return on ? <InvoiceAutoDebitCardInner invoiceId={invoiceId} /> : null;
 }

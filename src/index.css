@@ -208,6 +208,18 @@
 .dark .border-indigo-200 { border-color: rgb(99 102 241 / 0.30); }
 
 .dark .bg-green-50 { background-color: rgb(34 197 94 / 0.14); }
+.dark .bg-emerald-50\/50 { background-color: rgb(16 185 129 / 0.08); }
+.dark .bg-amber-50\/40,
+.dark .bg-amber-50\/60 { background-color: rgb(245 158 11 / 0.08); }
+
+/* The darkest text shades sit on those pale fills in banners and notes (`text-blue-900` on `bg-blue-50`, …). In dark mode the fill
+   becomes a translucent tint, so the text has to turn pale too or it is dark on dark. */
+.dark .text-blue-900 { color: rgb(191 219 254); }
+.dark .text-amber-800,
+.dark .text-amber-900 { color: rgb(253 230 138); }
+.dark .text-red-800 { color: rgb(254 202 202); }
+.dark .text-brand-800,
+.dark .text-emerald-800 { color: rgb(167 243 208); }
 .dark .text-green-700 { color: rgb(134 239 172); }
 .dark .text-green-600 { color: rgb(74 222 128); }
 .dark .border-green-200 { border-color: rgb(34 197 94 / 0.30); }

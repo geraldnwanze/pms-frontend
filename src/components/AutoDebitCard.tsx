@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { CalendarClock, CreditCard, Loader2, RefreshCw, ShieldCheck } from 'lucide-react';
-import { useAppDispatch } from '@/store/hooks';
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { pushToast } from '@/store/uiSlice';
+import { selectModuleOn } from '@/store/selectors';
 import { api, ApiError } from '@/lib/api';
 import { SectionCard, Badge, Money, ConfirmDialog } from '@/components/ui';
 import { formatDate, uid } from '@/lib/format';
@@ -21,7 +22,7 @@ const STATE_LABEL: Record<AutoDebitUpcoming['state'], { text: (u: AutoDebitUpcom
  * card is saved and what will be charged next, change the card, or switch it off. The card itself
  * is never seen here — only Paystack's masked summary.
  */
-export function AutoDebitCard() {
+function AutoDebitCardInner() {
   const dispatch = useAppDispatch();
   const [status, setStatus] = useState<AutoDebitStatus | null>(null);
   const [loadError, setLoadError] = useState(false);
@@ -162,4 +163,10 @@ export function AutoDebitCard() {
       />
     </SectionCard>
   );
+}
+
+/** Renders nothing while the Auto-debit module is turned off (and so makes no request to it). */
+export function AutoDebitCard() {
+  const on = useAppSelector(selectModuleOn('auto-debit'));
+  return on ? <AutoDebitCardInner /> : null;
 }

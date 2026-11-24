@@ -7,7 +7,8 @@
 // ---- Users, roles & permissions -------------------------------------------
 
 export type Role =
-  | 'admin' // Super Administrator
+  | 'superadmin' // Platform owner: everything an admin can do, plus switching modules on and off
+  | 'admin' // Administrator
   | 'owner' // Property Owner / Landlord
   | 'manager' // Property Manager
   | 'agent' // Real Estate Agent
@@ -17,7 +18,7 @@ export type Role =
   | 'user'; // Registered, not yet attached to any property
 
 /** A role a person can hold *on a specific property*. */
-export type MemberRole = Exclude<Role, 'admin' | 'user'>;
+export type MemberRole = Exclude<Role, 'superadmin' | 'admin' | 'user'>;
 
 export type MembershipStatus = 'invited' | 'active' | 'declined' | 'revoked';
 
@@ -54,7 +55,8 @@ export type Permission =
   | 'manage_payments'
   | 'manage_users'
   | 'manage_documents'
-  | 'manage_financials';
+  | 'manage_financials'
+  | 'manage_modules';
 
 export interface User {
   id: string;

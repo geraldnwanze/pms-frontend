@@ -7,7 +7,7 @@ import { selectData, selectCurrentUser } from '@/store/selectors';
 import {
   PageHeader, Card, StatCard, Badge, Money, Avatar, EmptyState, ExportMenu,
 } from '@/components/ui';
-import { ROLE_LABELS, ROLE_COLORS } from '@/config/roles';
+import { ROLE_LABELS, ROLE_COLORS, isAdminRole } from '@/config/roles';
 import type { Role, User } from '@/types';
 
 // ===========================================================================
@@ -79,7 +79,7 @@ export function Owners() {
 // ===========================================================================
 // Staff
 // ===========================================================================
-const STAFF_ROLES: Role[] = ['admin', 'manager', 'agent', 'finance', 'maintenance'];
+const STAFF_ROLES: Role[] = ['superadmin', 'admin', 'manager', 'agent', 'finance', 'maintenance'];
 
 export function Staff() {
   const data = useAppSelector(selectData);
@@ -91,7 +91,7 @@ export function Staff() {
   );
 
   const assignedProps = (u: User) => {
-    if (u.role === 'admin') return data.properties;
+    if (isAdminRole(u.role)) return data.properties;
     const ids = new Set(u.assignedPropertyIds ?? []);
     if (ids.size) return data.properties.filter((p) => ids.has(p.id));
     // managers referenced on the property record
@@ -138,7 +138,7 @@ export function Staff() {
                 <p className="flex items-center gap-2 truncate text-ink-500"><Mail className="h-3.5 w-3.5 text-ink-300" />{u.email}</p>
               </div>
               <div className="mt-4 flex items-center justify-between border-t border-ink-100 pt-3">
-                <span className="text-sm text-ink-500">{u.role === 'admin' ? 'All properties' : `${props.length} ${props.length === 1 ? 'property' : 'properties'}`}</span>
+                <span className="text-sm text-ink-500">{isAdminRole(u.role) ? 'All properties' : `${props.length} ${props.length === 1 ? 'property' : 'properties'}`}</span>
                 {u.status !== 'active' ? <Badge tone="amber">{u.status}</Badge> : <Badge tone="green" dot>Active</Badge>}
               </div>
             </Card>

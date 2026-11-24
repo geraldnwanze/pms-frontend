@@ -8,6 +8,7 @@ import type {
   PropertyType, UnitStatus, PaymentMethod, BillingCycle,
   InvoiceStatus, LeaseStatus,
 } from '@/types';
+import type { ModuleStates } from '@/config/modules';
 import {
   createRng, pick, randInt, shuffle, seqId, addMonths, daysBetween, SEED_TODAY as TODAY,
 } from '@/lib/format';
@@ -52,6 +53,8 @@ export interface SeedData {
   integrations: IntegrationsMap;
   /** Authoritative RBAC matrix from the backend. */
   rbac: RbacMatrix | null;
+  /** Which platform modules are on (a superadmin switches them). Null until the bootstrap has loaded. */
+  modules: ModuleStates | null;
   /** Server-computed overview rollup (GET /api/v1/dashboard), tailored per persona. */
   dashboard: DashboardData | null;
   /** Server-computed resident home rollup (GET /api/v1/portal). */
@@ -350,7 +353,7 @@ export function generateSeed(): SeedData {
     maintenance, expenses, vendors, inspections, meters, listings, leads,
     documents, notifications, notices, messages, audit, tasks, events,
     maintenancePayouts: [], memberships: [], invitations: [],
-    settings: null, integrations: {}, rbac: null, dashboard: null, portal: null,
+    settings: null, integrations: {}, rbac: null, modules: null, dashboard: null, portal: null,
   };
 }
 

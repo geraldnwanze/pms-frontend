@@ -2,11 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import { useAppSelector } from '@/store/hooks';
-import { selectCurrentUser } from '@/store/selectors';
+import { selectCurrentUser, selectModuleOn } from '@/store/selectors';
 import { api } from '@/lib/api';
 import type { AutoDebitOverview } from '@/types';
 
-export const AUTO_DEBIT_STAFF_ROLES = ['admin', 'owner', 'manager', 'finance'];
+export const AUTO_DEBIT_STAFF_ROLES = ['superadmin', 'admin', 'owner', 'manager', 'finance'];
 
 /**
  * Auto-debit state per invoice for the properties the signed-in staff member can see.
@@ -15,7 +15,8 @@ export const AUTO_DEBIT_STAFF_ROLES = ['admin', 'owner', 'manager', 'finance'];
  */
 export function useAutoDebitOverview(): AutoDebitOverview | null {
   const user = useAppSelector(selectCurrentUser);
-  const eligible = !!user && AUTO_DEBIT_STAFF_ROLES.includes(user.role);
+  const moduleOn = useAppSelector(selectModuleOn('auto-debit'));
+  const eligible = moduleOn && !!user && AUTO_DEBIT_STAFF_ROLES.includes(user.role);
   const [overview, setOverview] = useState<AutoDebitOverview | null>(null);
 
   useEffect(() => {

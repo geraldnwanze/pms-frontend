@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Wallet, Zap } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { selectData, selectCurrentUser, selectIntegrations, invoiceOutstanding, openPaymentForInvoice } from '@/store/selectors';
+import { selectData, selectCurrentUser, selectIntegrations, selectModuleOn, invoiceOutstanding, openPaymentForInvoice } from '@/store/selectors';
 import { dataActions } from '@/store/dataSlice';
 import { pushToast } from '@/store/uiSlice';
 import { api, ApiError } from '@/lib/api';
@@ -79,10 +79,11 @@ export function RecordPaymentModal({
   // Offer to keep the card for auto-debit — only when it isn't already on.
   const [saveCard, setSaveCard] = useState(false);
   const [autoDebitOff, setAutoDebitOff] = useState(false);
+  const autoDebitModuleOn = useAppSelector(selectModuleOn('auto-debit'));
   useEffect(() => {
-    if (user?.role !== 'tenant' || !integrations?.paystack?.configured) return;
+    if (!autoDebitModuleOn || user?.role !== 'tenant' || !integrations?.paystack?.configured) return;
     api.autoDebitStatus().then((st) => setAutoDebitOff(st.available && !st.enabled)).catch(() => setAutoDebitOff(false));
-  }, [user?.role, integrations?.paystack?.configured]);
+  }, [autoDebitModuleOn, user?.role, integrations?.paystack?.configured]);
 
   const canPayOnline =
     user?.role === 'tenant' &&

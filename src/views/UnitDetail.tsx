@@ -16,7 +16,7 @@ import { RecordPaymentModal } from '@/components/RecordPaymentModal';
 import { EditUnitModal } from '@/components/StructureModals';
 import { unitStatusMeta, invoiceStatusMeta, leaseStatusMeta, maintenanceStatusMeta, urgencyMeta } from '@/lib/status';
 import { formatDate, formatNumber, daysUntil } from '@/lib/format';
-import { can } from '@/config/roles';
+import { can, isAdminRole } from '@/config/roles';
 import type { Invoice, MaintenanceRequest } from '@/types';
 
 export function UnitDetail() {
@@ -44,7 +44,7 @@ export function UnitDetail() {
   }
 
   const { unit, property, building, lease, tenant, invoices, balance } = ctx;
-  const roleHere = user?.role === 'admin'
+  const roleHere = isAdminRole(user?.role)
     ? 'admin'
     : memberships.find((m) => m.propertyId === property?.id && m.status === 'active')?.role;
   const canEditUnit = roleHere === 'admin' || roleHere === 'owner' || roleHere === 'manager';

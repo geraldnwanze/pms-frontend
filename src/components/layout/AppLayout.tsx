@@ -5,9 +5,11 @@ import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
 import { EmailVerificationBanner } from './EmailVerificationBanner';
 import { useRealtimeNotifications } from '@/hooks/useRealtimeNotifications';
+import { useModuleSync } from '@/hooks/useModuleSync';
 
 export function AppLayout({ children }: { children: ReactNode }) {
   useRealtimeNotifications();
+  useModuleSync();
   return (
     <div className="flex min-h-screen bg-ink-100">
       <Sidebar />

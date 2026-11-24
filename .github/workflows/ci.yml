@@ -1,9 +1,12 @@
 name: CI
 
+# Paused while the app is in development: runs only when started by hand (Actions tab > CI > Run workflow).
+# To turn it back on, restore the push and pull_request triggers below.
 on:
-  push:
-    branches: [main, dev]
-  pull_request:
+  workflow_dispatch:
+  # push:
+  #   branches: [main, dev]
+  # pull_request:
 
 concurrency:
   group: ci-${{ github.ref }}

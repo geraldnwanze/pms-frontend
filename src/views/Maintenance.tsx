@@ -8,7 +8,7 @@ import {
   HandCoins, ThumbsUp, Landmark,
 } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { selectData, selectCurrentUser, scopedPropertyIds, payoutForMaintenance } from '@/store/selectors';
+import { selectData, selectCurrentUser, selectModuleOn, scopedPropertyIds, payoutForMaintenance } from '@/store/selectors';
 import { dataActions } from '@/store/dataSlice';
 import { pushToast } from '@/store/uiSlice';
 import {
@@ -20,7 +20,7 @@ import {
   EmptyState, DataTable, type Column, Chip, ExportMenu, Modal, Field, Input, Select, Textarea,
 } from '@/components/ui';
 import { maintenanceStatusMeta, urgencyMeta, payoutStatusMeta } from '@/lib/status';
-import { can } from '@/config/roles';
+import { can, isAdminRole } from '@/config/roles';
 import { formatDate, formatDateTime, fromNow, uid, classNames, today } from '@/lib/format';
 import type {
   MaintenanceRequest, MaintenanceStatus, MaintenanceUrgency, MaintenanceRound, MaintenanceRoundStage,
@@ -184,6 +184,7 @@ export function MaintenanceDetail() {
   const [loggingRound, setLoggingRound] = useState(false);
   const [requestingPayout, setRequestingPayout] = useState(false);
   const [payingPayout, setPayingPayout] = useState(false);
+  const payoutsOn = useAppSelector(selectModuleOn('payouts'));
 
   const m = data.maintenance.find((x) => x.id === id);
 
@@ -200,7 +201,7 @@ export function MaintenanceDetail() {
   const canEdit = can(user?.role, 'edit');
   const canApprove = can(user?.role, 'approve');
   // Assigning a technician is a manager/owner/admin decision — not the tech's.
-  const canAssign = ['admin', 'owner', 'manager'].includes(user?.role ?? '');
+  const canAssign = isAdminRole(user?.role) || ['owner', 'manager'].includes(user?.role ?? '');
   const stepIdx = STATUS_ORDER.indexOf(m.status);
 
   const payout = payoutForMaintenance(data, m.id);
@@ -208,8 +209,8 @@ export function MaintenanceDetail() {
   const canTenantConfirm =
     user?.role === 'tenant' && !!user.tenantId && m.tenantId === user.tenantId && m.status === 'completed';
   const canRequestPayout =
-    isAssignedTech && ['tenant-confirmed', 'verified', 'closed'].includes(m.status) && !payout;
-  const canActOnPayout = ['admin', 'owner', 'manager', 'finance'].includes(user?.role ?? '');
+    payoutsOn && isAssignedTech && ['tenant-confirmed', 'verified', 'closed'].includes(m.status) && !payout;
+  const canActOnPayout = isAdminRole(user?.role) || ['owner', 'manager', 'finance'].includes(user?.role ?? '');
 
   const advance = (status: MaintenanceStatus, changes: Partial<MaintenanceRequest> = {}) => {
     dispatch(dataActions.updateMaintenance({ id: m.id, actorId: user!.id, changes: { status, ...changes } }));
@@ -292,7 +293,7 @@ export function MaintenanceDetail() {
             ) : <EmptyState title="Unassigned" description={canAssign ? 'Assign a technician or vendor to begin.' : 'A manager will assign this shortly.'} />}
           </SectionCard>
 
-          <PayoutCard
+          {payoutsOn && <PayoutCard
             payout={payout}
             request={m}
             data={data}
@@ -303,7 +304,7 @@ export function MaintenanceDetail() {
             onApprove={() => payout && dispatch(approveMaintenancePayout(payout.id))}
             onReject={(reason) => payout && dispatch(rejectMaintenancePayout(payout.id, reason))}
             onPay={() => setPayingPayout(true)}
-          />
+          />}
 
           <SectionCard title="Costs">
             <div className="space-y-2 text-sm">

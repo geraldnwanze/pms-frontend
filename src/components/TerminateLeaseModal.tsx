@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { selectData } from '@/store/selectors';
+import { selectData, selectModuleOn } from '@/store/selectors';
 import { bootstrap } from '@/store/thunks';
 import { pushToast } from '@/store/uiSlice';
 import { Modal, Money } from '@/components/ui';
@@ -22,9 +22,11 @@ const num = (n: number) => n.toLocaleString('en-NG', { maximumFractionDigits: 3 
 export function TerminateLeaseModal({ lease, unitCode, tenantName, onClose }: { lease: Lease; unitCode?: string; tenantName?: string; onClose: () => void }) {
   const dispatch = useAppDispatch();
   const data = useAppSelector(selectData);
+  // With the Utilities module off there are no readings to take and no final bill: the dialog is just the confirmation.
+  const utilitiesOn = useAppSelector(selectModuleOn('utilities'));
   const meters = useMemo(
-    () => data.meters.filter((m) => m.unitId === lease.unitId).slice().sort((a, b) => a.meterNumber.localeCompare(b.meterNumber)),
-    [data.meters, lease.unitId],
+    () => (utilitiesOn ? data.meters.filter((m) => m.unitId === lease.unitId).slice().sort((a, b) => a.meterNumber.localeCompare(b.meterNumber)) : []),
+    [utilitiesOn, data.meters, lease.unitId],
   );
   const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(meters.map((m) => [m.id, String(m.currentReading)])));
   const [busy, setBusy] = useState(false);
@@ -112,7 +114,7 @@ export function TerminateLeaseModal({ lease, unitCode, tenantName, onClose }: { 
               ? <span className="text-red-700">Correct the highlighted reading to see the final utility bill.</span>
               : total > 0
               ? <><span className="text-ink-700">Final utility bill to {tenantName ?? 'the tenant'}</span><Money value={total} className="font-bold text-amber-800" /></>
-              : <span className="text-ink-600">{meters.length ? 'No utility use is waiting to be billed.' : 'There are no meters on this unit, so no final utility bill.'}</span>}
+              : <span className="text-ink-600">{!utilitiesOn ? 'Utilities is turned off, so no final utility bill is raised.' : meters.length ? 'No utility use is waiting to be billed.' : 'There are no meters on this unit, so no final utility bill.'}</span>}
         </div>
       </div>
     </Modal>

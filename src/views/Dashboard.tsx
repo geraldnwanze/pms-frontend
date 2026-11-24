@@ -13,11 +13,7 @@ import {
 } from 'lucide-react';
 import dayjs from 'dayjs';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import {
-  selectData, selectCurrentUser, scopedPropertyIds, computeKpis, propertyPerformance,
-  selectNotificationsForCurrentUser, selectDashboard,
-  isOverdue, isLeaseExpiring,
-} from '@/store/selectors';
+import { selectData, selectCurrentUser, scopedPropertyIds, computeKpis, propertyPerformance, selectNotificationsForCurrentUser, selectDashboard, isOverdue, isLeaseExpiring, selectModuleOn } from '@/store/selectors';
 import { fetchDashboard } from '@/store/thunks';
 import { StatCard, SectionCard, PageHeader, Money, ProgressBar, StatusBadge, Badge, EmptyState } from '@/components/ui';
 import {
@@ -25,7 +21,7 @@ import {
   payoutStatusMeta,
 } from '@/lib/status';
 import { formatCurrency, formatPercent, formatDate, daysUntil, classNames, today } from '@/lib/format';
-import { ROLE_LABELS } from '@/config/roles';
+import { ROLE_LABELS, isAdminRole } from '@/config/roles';
 import type { DashboardData, DashboardKpis, DashboardPersona, Role } from '@/types';
 
 const DONUT = {
@@ -70,14 +66,16 @@ export function Dashboard() {
   }, [dispatch, propertyFilter]);
 
   const persona = dash?.persona ?? personaFromRole(user?.role);
+  const leasingOn = useAppSelector(selectModuleOn('leasing'));
+  const maintenanceOn = useAppSelector(selectModuleOn('maintenance'));
 
   return (
     <div>
       <DashHeader />
       {persona === 'finance' && <FinanceDashboard dash={dash} />}
       {persona === 'operations' && <OperationsDashboard dash={dash} />}
-      {persona === 'leasing' && <LeasingDashboard dash={dash} />}
-      {persona === 'maintenance' && <MaintenanceDashboard dash={dash} />}
+      {persona === 'leasing' && (leasingOn ? <LeasingDashboard dash={dash} /> : <ModuleOffNotice name="Leasing & leads" />)}
+      {persona === 'maintenance' && (maintenanceOn ? <MaintenanceDashboard dash={dash} /> : <ModuleOffNotice name="Maintenance" />)}
       {persona === 'newcomer' && <NewcomerDashboard />}
       {persona === 'portfolio' && <PortfolioDashboard dash={dash} />}
     </div>
@@ -294,6 +292,9 @@ function PortfolioDashboard({ dash }: { dash: DashboardData | null }) {
   const data = useAppSelector(selectData);
   const user = useAppSelector(selectCurrentUser);
   const ids = useAppSelector(scopedPropertyIds);
+  const maintenanceOn = useAppSelector(selectModuleOn('maintenance'));
+  const expensesOn = useAppSelector(selectModuleOn('expenses'));
+  const reportsOn = useAppSelector(selectModuleOn('reports'));
 
   const clientKpis = useMemo(() => computeKpis(data, ids), [data, ids]);
   const kpis = dash?.kpis ?? clientKpis;
@@ -337,7 +338,7 @@ function PortfolioDashboard({ dash }: { dash: DashboardData | null }) {
     [data.leases, ids],
   );
 
-  const canFinance = user && ['admin', 'owner', 'manager', 'finance'].includes(user.role);
+  const canFinance = user && (isAdminRole(user.role) || ['owner', 'manager', 'finance'].includes(user.role));
 
   return (
     <div>
@@ -357,10 +358,14 @@ function PortfolioDashboard({ dash }: { dash: DashboardData | null }) {
             hint={`${formatCurrency(kpis.overdue, { compact: true })} overdue`} onClick={() => navigate('/invoices')} />
           <StatCard label="Pending verification" value={kpis.pendingVerifications} icon={<BadgeCheck className="h-5 w-5" />} tone={kpis.pendingVerifications > 0 ? 'amber' : 'gray'}
             hint="Receipts to review" onClick={() => navigate(canFinance ? '/payments/verification' : '/payments')} />
+          {maintenanceOn && (
           <StatCard label="Open maintenance" value={kpis.openMaintenance} icon={<Wrench className="h-5 w-5" />} tone={kpis.openMaintenance > 0 ? 'red' : 'gray'}
             hint="Active work orders" onClick={() => navigate('/maintenance')} />
+          )}
+          {expensesOn && (
           <StatCard label="Net income" value={formatCurrency(kpis.netIncome, { compact: true })} icon={<Wallet className="h-5 w-5" />} tone={kpis.netIncome >= 0 ? 'green' : 'red'}
-            hint={`${formatCurrency(kpis.totalExpenses, { compact: true })} expenses`} onClick={() => navigate('/reports')} />
+            hint={`${formatCurrency(kpis.totalExpenses, { compact: true })} expenses`} onClick={reportsOn ? () => navigate('/reports') : undefined} />
+          )}
         </KpiGrid>
       </div>
 
@@ -372,7 +377,7 @@ function PortfolioDashboard({ dash }: { dash: DashboardData | null }) {
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
         <SectionCard title="Property performance" subtitle="Sorted by outstanding balance" className="lg:col-span-2" bodyClassName="p-0"
           action={<button onClick={() => navigate('/properties')} className="btn-ghost text-xs">View all <ArrowUpRight className="h-3.5 w-3.5" /></button>}>
-          <DataGrid head={['Property', { label: 'Occupancy' }, { label: 'Collected', right: true }, { label: 'Outstanding', right: true }, { label: 'Net income', right: true }]}>
+          <DataGrid head={['Property', { label: 'Occupancy' }, { label: 'Collected', right: true }, { label: 'Outstanding', right: true }, ...(expensesOn ? [{ label: 'Net income', right: true }] : [])]}>
             {performance.slice(0, 6).map((p) => (
               <tr key={p.id} onClick={() => navigate(`/properties/${p.id}`)} className="cursor-pointer transition-colors hover:bg-brand-50/40">
                 <td className="td">
@@ -392,7 +397,7 @@ function PortfolioDashboard({ dash }: { dash: DashboardData | null }) {
                 </td>
                 <td className="td text-right"><Money value={p.collected} compact /></td>
                 <td className="td text-right"><Money value={p.outstanding} compact className={p.outstanding > 0 ? 'text-amber-600 font-semibold' : ''} /></td>
-                <td className="td text-right"><Money value={p.netIncome} compact colorNegative /></td>
+                {expensesOn && <td className="td text-right"><Money value={p.netIncome} compact colorNegative /></td>}
               </tr>
             ))}
           </DataGrid>
@@ -406,7 +411,9 @@ function PortfolioDashboard({ dash }: { dash: DashboardData | null }) {
               hint={formatCurrency(overdueInvoices.reduce((s, i) => s + Math.max(0, i.total - i.amountPaid), 0), { compact: true })}
               onClick={() => navigate('/invoices')} />
             <AttentionRow icon={<CalendarClock className="h-4 w-4" />} tone="blue" label="Leases expiring soon" value={expiringLeases.length} onClick={() => navigate('/leases')} />
+            {maintenanceOn && (
             <AttentionRow icon={<Wrench className="h-4 w-4" />} tone="purple" label="Open maintenance" value={kpis.openMaintenance} onClick={() => navigate('/maintenance')} />
+            )}
           </div>
 
           {expiringLeases.length > 0 && (
@@ -482,6 +489,7 @@ function aggregateTrend(invoices: { issueDate: string; total: number; amountPaid
 function FinanceDashboard({ dash }: { dash: DashboardData | null }) {
   const navigate = useNavigate();
   const { tenantName, propertyName, vendorName } = useLookups();
+  const expensesOn = useAppSelector(selectModuleOn('expenses'));
   if (!dash) return <DashLoading />;
   const { kpis } = dash;
   const pending = dash.pendingPayments ?? [];
@@ -497,18 +505,22 @@ function FinanceDashboard({ dash }: { dash: DashboardData | null }) {
           hint={`${formatCurrency(kpis.overdue, { compact: true })} overdue`} onClick={() => navigate('/invoices')} />
         <StatCard label="To verify" value={kpis.pendingVerifications} icon={<BadgeCheck className="h-5 w-5" />} tone={kpis.pendingVerifications > 0 ? 'amber' : 'gray'}
           hint="Receipts in the queue" onClick={() => navigate('/payments/verification')} />
+        {expensesOn && (
         <StatCard label="Expenses" value={formatCurrency(kpis.totalExpenses, { compact: true })} icon={<Wallet className="h-5 w-5" />} tone="indigo"
           hint={`${expenses.length} awaiting approval`} onClick={() => navigate('/expenses')} />
+        )}
       </KpiGrid>
 
       <div className="mt-5 grid gap-4 lg:grid-cols-3">
-        <RentTrendCard dash={dash} className="lg:col-span-2" />
+        <RentTrendCard dash={dash} className={expensesOn ? 'lg:col-span-2' : 'lg:col-span-3'} />
+        {expensesOn && (
         <SectionCard title="Expenses by category" subtitle="Approved & paid" bodyClassName="p-3">
           {(dash.expensesByCategory ?? []).length === 0
             ? <EmptyState title="No expenses" />
             : <BreakdownBars rows={(dash.expensesByCategory ?? []).slice(0, 6).map((c) => ({ label: c.category, value: Math.round(c.total / 1000) }))} />}
           <p className="mt-2 text-[11px] text-ink-400">Values in ₦ thousands</p>
         </SectionCard>
+        )}
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
@@ -545,6 +557,7 @@ function FinanceDashboard({ dash }: { dash: DashboardData | null }) {
         </SectionCard>
       </div>
 
+      {expensesOn && (
       <SectionCard title="Expenses awaiting approval" className="mt-4" bodyClassName="p-0"
         action={<button onClick={() => navigate('/expenses')} className="btn-ghost text-xs">Review <ArrowUpRight className="h-3.5 w-3.5" /></button>}>
         {expenses.length === 0 ? <div className="p-4"><EmptyState title="Nothing to approve" /></div> : (
@@ -561,6 +574,7 @@ function FinanceDashboard({ dash }: { dash: DashboardData | null }) {
           </DataGrid>
         )}
       </SectionCard>
+      )}
     </div>
   );
 }
@@ -571,6 +585,7 @@ function FinanceDashboard({ dash }: { dash: DashboardData | null }) {
 function OperationsDashboard({ dash }: { dash: DashboardData | null }) {
   const navigate = useNavigate();
   const { tenantName, propertyName, unitCode } = useLookups();
+  const maintenanceOn = useAppSelector(selectModuleOn('maintenance'));
   if (!dash) return <DashLoading />;
   const { kpis } = dash;
   const queue = dash.maintenanceQueue;
@@ -582,8 +597,10 @@ function OperationsDashboard({ dash }: { dash: DashboardData | null }) {
       <KpiGrid>
         <StatCard label="Occupancy" value={formatPercent(kpis.occupancyRate)} icon={<DoorOpen className="h-5 w-5" />} tone="blue"
           hint={`${kpis.occupied} occupied · ${kpis.vacant} vacant`} onClick={() => navigate('/units')} />
+        {maintenanceOn && (
         <StatCard label="Open maintenance" value={kpis.openMaintenance} icon={<Wrench className="h-5 w-5" />} tone={kpis.openMaintenance > 0 ? 'red' : 'gray'}
           hint={`${queue?.emergencyCount ?? 0} emergencies`} onClick={() => navigate('/maintenance')} />
+        )}
         <StatCard label="To verify" value={kpis.pendingVerifications} icon={<BadgeCheck className="h-5 w-5" />} tone={kpis.pendingVerifications > 0 ? 'amber' : 'gray'}
           hint="Receipts in the queue" onClick={() => navigate('/payments/verification')} />
         <StatCard label="Expiring leases" value={kpis.expiringLeases} icon={<CalendarClock className="h-5 w-5" />} tone={kpis.expiringLeases > 0 ? 'amber' : 'gray'}
@@ -592,6 +609,7 @@ function OperationsDashboard({ dash }: { dash: DashboardData | null }) {
 
       <div className="mt-5 grid gap-4 lg:grid-cols-3">
         <UnitStatusCard kpis={kpis} />
+        {maintenanceOn && (
         <SectionCard title="Work order queue" subtitle={`${queue?.openCount ?? 0} open`} className="lg:col-span-2" bodyClassName="p-3">
           {queue ? (
             <div className="grid gap-5 sm:grid-cols-2">
@@ -611,9 +629,11 @@ function OperationsDashboard({ dash }: { dash: DashboardData | null }) {
             </div>
           ) : <EmptyState title="No work orders" />}
         </SectionCard>
+        )}
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
+        {maintenanceOn && (
         <SectionCard title="Maintenance queue" subtitle="Most urgent first" className="lg:col-span-2" bodyClassName="p-0"
           action={<button onClick={() => navigate('/maintenance')} className="btn-ghost text-xs">All work orders <ArrowUpRight className="h-3.5 w-3.5" /></button>}>
           {!queue || queue.items.length === 0 ? <div className="p-4"><EmptyState title="Nothing open" /></div> : (
@@ -632,12 +652,15 @@ function OperationsDashboard({ dash }: { dash: DashboardData | null }) {
             </DataGrid>
           )}
         </SectionCard>
+        )}
 
         <SectionCard title="Attention" bodyClassName="p-3">
           <div className="space-y-2">
             <AttentionRow icon={<BadgeCheck className="h-4 w-4" />} tone="amber" label="Payments to verify" value={pending.length} onClick={() => navigate('/payments/verification')} />
             <AttentionRow icon={<CalendarClock className="h-4 w-4" />} tone="blue" label="Leases expiring soon" value={expiring.length} onClick={() => navigate('/leases')} />
+            {maintenanceOn && (
             <AttentionRow icon={<Flame className="h-4 w-4" />} tone="red" label="Emergency jobs" value={queue?.emergencyCount ?? 0} onClick={() => navigate('/maintenance')} />
+            )}
           </div>
           {expiring.length > 0 && (
             <div className="mt-4">
@@ -882,6 +905,15 @@ function StepCard({ icon, n, title, body }: { icon: React.ReactNode; n: number; 
       </div>
       <p className="mt-2 text-sm font-semibold text-ink-800">{title}</p>
       <p className="mt-1 text-sm text-ink-500">{body}</p>
+    </div>
+  );
+}
+
+/** Shown in place of a persona dashboard whose whole subject is a module that is turned off. */
+function ModuleOffNotice({ name }: { name: string }) {
+  return (
+    <div data-testid="dashboard-module-off" className="mt-5">
+      <EmptyState title={`${name} is turned off`} />
     </div>
   );
 }

@@ -11,7 +11,7 @@ import { pushToast } from '@/store/uiSlice';
 import {
   PageHeader, Card, StatCard, Badge, Avatar, Chip, EmptyState, Modal, Field, Input, Select, Textarea,
 } from '@/components/ui';
-import { can, ROLE_LABELS } from '@/config/roles';
+import { can, ROLE_LABELS, isAdminRole } from '@/config/roles';
 import { formatDate, formatDateTime, fromNow, uid, classNames } from '@/lib/format';
 import type { Notice, Message, User } from '@/types';
 
@@ -145,7 +145,7 @@ export function Messages() {
   const [starting, setStarting] = useState(false);
 
   const me = user!;
-  const isAdmin = me.role === 'admin';
+  const isAdmin = isAdminRole(me.role);
   const userById = (id: string) => data.users.find((u) => u.id === id);
 
   const threads = useMemo<Thread[]>(() => {

@@ -13,7 +13,7 @@ import { pushToast } from '@/store/uiSlice';
 import {
   PageHeader, Card, SectionCard, StatCard, Badge, Avatar, EmptyState, Chip, Modal, Field, Input, Select,
 } from '@/components/ui';
-import { can } from '@/config/roles';
+import { can, isAdminRole } from '@/config/roles';
 import { formatDate, today, daysUntil, uid, classNames } from '@/lib/format';
 import type { TaskItem, CalendarEvent } from '@/types';
 
@@ -99,7 +99,7 @@ function NewTaskModal({ onClose }: { onClose: () => void }) {
   const dispatch = useAppDispatch();
   const data = useAppSelector(selectData);
   const scoped = useAppSelector(scopedPropertyIds);
-  const staff = useMemo(() => data.users.filter((u) => ['admin', 'manager', 'agent', 'finance', 'maintenance'].includes(u.role)), [data.users]);
+  const staff = useMemo(() => data.users.filter((u) => (isAdminRole(u.role) || ['manager', 'agent', 'finance', 'maintenance'].includes(u.role))), [data.users]);
   const properties = useMemo(() => data.properties.filter((p) => scoped.has(p.id)), [data.properties, scoped]);
 
   const [title, setTitle] = useState('');
