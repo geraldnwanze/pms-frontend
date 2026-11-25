@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, apiFetch, authToken, setAuthToken, setModuleOffHandler, setUnauthorizedHandler } from './api';
+import { ApiError, api, apiFetch, authToken, setAuthToken, setModuleOffHandler, setUnauthorizedHandler } from './api';
 
 function reply(status: number, body: unknown) {
   return vi.fn(async () => new Response(body === undefined ? null : typeof body === 'string' ? body : JSON.stringify(body), { status }));
@@ -111,5 +111,70 @@ describe('token storage', () => {
     expect(authToken()).toBe('abc');
     setAuthToken(null);
     expect(authToken()).toBeNull();
+  });
+});
+
+describe('the "I\'m not a robot" challenge calls', () => {
+  const sent = (f: ReturnType<typeof reply>, n = 0) => {
+    const [url, init] = f.mock.calls[n] as unknown as [string, RequestInit];
+    return { url, init, body: init.body ? JSON.parse(init.body as string) : undefined };
+  };
+
+  it('reads the challenge settings without a sign-in', async () => {
+    setAuthToken('stored');
+    const f = reply(200, { data: { enabled: true, siteKey: 'site' } });
+    vi.stubGlobal('fetch', f);
+
+    expect(await api.captchaConfig()).toEqual({ enabled: true, siteKey: 'site' });
+
+    const { url, init } = sent(f);
+    expect(url).toMatch(/\/auth\/captcha$/);
+    expect(init.method ?? 'GET').toBe('GET');
+    expect(init.headers).not.toHaveProperty('Authorization');
+  });
+
+  it('sends the token with a password sign-in', async () => {
+    const f = reply(200, { data: { token: 't', user: {} } });
+    vi.stubGlobal('fetch', f);
+
+    await api.login({ email: 'a@x.test', password: 'pw', captchaToken: 'good-token' });
+
+    expect(sent(f).body).toEqual({ email: 'a@x.test', password: 'pw', captchaToken: 'good-token' });
+  });
+
+  it('sends the token with a registration', async () => {
+    const f = reply(201, { data: { token: 't', user: {} } });
+    vi.stubGlobal('fetch', f);
+
+    await api.register({ name: 'N', email: 'a@x.test', password: 'a-long-secret', password_confirmation: 'a-long-secret', captchaToken: 'good-token' });
+
+    expect(sent(f).body.captchaToken).toBe('good-token');
+  });
+
+  it('sends the token with a password-reset request', async () => {
+    const f = reply(200, { data: null, message: 'ok' });
+    vi.stubGlobal('fetch', f);
+
+    await api.forgotPassword('a@x.test', 'good-token');
+
+    expect(sent(f).body).toEqual({ email: 'a@x.test', captchaToken: 'good-token' });
+  });
+
+  it('sends no token field at all when the challenge is off', async () => {
+    const f = reply(200, { data: null, message: 'ok' });
+    vi.stubGlobal('fetch', f);
+
+    await api.forgotPassword('a@x.test');
+
+    expect(sent(f).body).toEqual({ email: 'a@x.test' });          // (undefined is dropped by JSON)
+  });
+
+  it('sends the token with the password reset itself', async () => {
+    const f = reply(200, { data: null, message: 'ok' });
+    vi.stubGlobal('fetch', f);
+
+    await api.resetPassword({ email: 'a@x.test', token: 'emailed', password: 'a-long-secret', password_confirmation: 'a-long-secret', captchaToken: 'good-token' });
+
+    expect(sent(f).body).toEqual({ email: 'a@x.test', token: 'emailed', password: 'a-long-secret', password_confirmation: 'a-long-secret', captchaToken: 'good-token' });
   });
 });

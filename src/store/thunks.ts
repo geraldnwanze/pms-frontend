@@ -188,8 +188,8 @@ export function signInAsUser(userId: string): Thunk<User | null> {
 }
 
 /** Sign in with real credentials. */
-export function signInWithPassword(email: string, password: string): Thunk<User | null> {
-  return (dispatch) => completeSession(dispatch, () => api.login({ email, password }), 'Sign in failed.');
+export function signInWithPassword(email: string, password: string, captchaToken?: string): Thunk<User | null> {
+  return (dispatch) => completeSession(dispatch, () => api.login({ email, password, captchaToken }), 'Sign in failed.');
 }
 
 /** Create a new account and sign it straight in. */
@@ -203,10 +203,10 @@ export function switchUser(userId: string): Thunk<User | null> {
 }
 
 /** Kick off a password reset. Returns the dev reset URL when the API exposes it. */
-export function requestPasswordReset(email: string): Thunk<{ ok: boolean; devUrl?: string }> {
+export function requestPasswordReset(email: string, captchaToken?: string): Thunk<{ ok: boolean; devUrl?: string }> {
   return async (dispatch) => {
     try {
-      const { data, message } = await api.forgotPassword(email);
+      const { data, message } = await api.forgotPassword(email, captchaToken);
       toast(dispatch, 'success', message ?? 'Check your email for a reset link.');
       return { ok: true, devUrl: data?.reset_url };
     } catch (err) {
@@ -222,6 +222,7 @@ export function performPasswordReset(input: {
   token: string;
   password: string;
   password_confirmation: string;
+  captchaToken?: string;
 }): Thunk<boolean> {
   return async (dispatch) => {
     try {

@@ -7,6 +7,8 @@ import { useAppDispatch } from '@/store/hooks';
 import { registerAccount } from '@/store/thunks';
 import { homePath } from '@/components/auth/guards';
 import { AuthShell } from '@/components/auth/AuthShell';
+import { CaptchaBox } from '@/components/auth/CaptchaBox';
+import { useCaptcha } from '@/hooks/useCaptcha';
 import { Field, Input } from '@/components/ui';
 
 export function Register() {
@@ -22,21 +24,25 @@ export function Register() {
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const captcha = useCaptcha();
 
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) => setForm((f) => ({ ...f, [k]: v }));
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (busy) return;
+    if (busy || !captcha.ready) return;
     if (form.password !== form.password_confirmation) {
       setError('Passwords do not match.');
       return;
     }
     setError(null);
     setBusy(true);
-    const user = await dispatch(registerAccount({ ...form, email: form.email.trim(), phone: form.phone || undefined }));
+    const user = await dispatch(registerAccount({ ...form, email: form.email.trim(), phone: form.phone || undefined, captchaToken: captcha.token ?? undefined }));
     if (user) navigate(homePath(user.role));
-    else setBusy(false);
+    else {
+      setBusy(false);
+      captcha.reset();          // a token works once
+    }
   };
 
   return (
@@ -75,7 +81,9 @@ export function Register() {
           </Field>
         </div>
 
-        <button type="submit" className="btn-primary w-full justify-center" disabled={busy}>
+        <CaptchaBox captcha={captcha} />
+
+        <button type="submit" className="btn-primary w-full justify-center" disabled={busy || !captcha.ready}>
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
           {busy ? 'Creating account…' : 'Create account'}
         </button>

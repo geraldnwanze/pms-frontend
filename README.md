@@ -97,3 +97,15 @@ current states in the bootstrap as `data.modules`; the app hides what is off, an
 
 To add a module: add its key to `ModuleKey` and its screens to `PATH_MODULES` in `src/config/modules.ts`, then hide whatever else
 it owns inside other screens with `selectModuleOn`. `src/config/modules.test.ts` covers the path map and the menu.
+
+## "I'm not a robot" challenge
+
+The sign-in, register, forgot-password and reset-password pages show Cloudflare's Turnstile widget when the server has it switched on (see the backend README,
+"Bot protection"). The page learns whether it is on, and its public site key, from `GET /auth/captcha`, so there is nothing to configure here.
+
+- `src/lib/captcha.ts` — reads that setting once per page load and loads Cloudflare's script on demand (a failed load can be retried).
+- `src/hooks/useCaptcha.ts` + `src/components/auth/CaptchaBox.tsx` — the state (`ready`, `token`, `reset()`) and the widget. A form's submit button
+  is disabled until the check is passed, the token is sent as `captchaToken`, and the widget is reset after any failed attempt because a token works once.
+  If the server says it is on but has no site key, the form shows a message instead of a widget nobody can pass.
+- Not on the demo one-click sign-in (a local-only shortcut), or on verify-email (it already needs an emailed token).
+

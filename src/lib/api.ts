@@ -155,25 +155,30 @@ export interface RegisterInput {
   password: string;
   password_confirmation: string;
   phone?: string;
+  /** Cloudflare's proof the visitor passed the "I'm not a robot" challenge (when it is on). */
+  captchaToken?: string;
 }
 
 export const api = {
   demoUsers: () => apiFetch<DemoUser[]>('/auth/demo-users').then((e) => e.data),
 
-  login: (input: { role?: string; userId?: string; email?: string; password?: string }) =>
+  /** Whether the "I'm not a robot" challenge is on, and its public key. */
+  captchaConfig: () => apiFetch<{ enabled: boolean; siteKey: string | null }>('/auth/captcha', { token: null }).then((e) => e.data),
+
+  login: (input: { role?: string; userId?: string; email?: string; password?: string; captchaToken?: string }) =>
     apiFetch<{ token: string; user: unknown }>('/auth/login', { method: 'POST', body: input, token: null }).then((e) => e.data),
 
   register: (input: RegisterInput) =>
     apiFetch<{ token: string; user: unknown }>('/auth/register', { method: 'POST', body: input, token: null }).then((e) => e.data),
 
-  forgotPassword: (email: string) =>
+  forgotPassword: (email: string, captchaToken?: string) =>
     apiFetch<{ email: string; reset_token: string; reset_url: string } | null>('/auth/forgot-password', {
       method: 'POST',
-      body: { email },
+      body: { email, captchaToken },
       token: null,
     }),
 
-  resetPassword: (input: { email: string; token: string; password: string; password_confirmation: string }) =>
+  resetPassword: (input: { email: string; token: string; password: string; password_confirmation: string; captchaToken?: string }) =>
     apiFetch('/auth/reset-password', { method: 'POST', body: input, token: null }),
 
   verifyEmail: (input: { email: string; token: string }) =>

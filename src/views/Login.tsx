@@ -8,6 +8,8 @@ import { useAppDispatch } from '@/store/hooks';
 import { signInWithPassword, signInAsUser } from '@/store/thunks';
 import { homePath } from '@/components/auth/guards';
 import { AuthShell } from '@/components/auth/AuthShell';
+import { CaptchaBox } from '@/components/auth/CaptchaBox';
+import { useCaptcha } from '@/hooks/useCaptcha';
 import { Field, Input, Avatar } from '@/components/ui';
 import { api, type DemoUser } from '@/lib/api';
 import { ROLE_LABELS } from '@/config/roles';
@@ -21,6 +23,7 @@ export function Login() {
   const [busy, setBusy] = useState(false);
   const [demoUsers, setDemoUsers] = useState<DemoUser[]>([]);
   const [demoBusy, setDemoBusy] = useState<string | null>(null);
+  const captcha = useCaptcha();
 
   useEffect(() => {
     api.demoUsers().then(setDemoUsers).catch(() => setDemoUsers([]));
@@ -28,11 +31,14 @@ export function Login() {
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (busy) return;
+    if (busy || !captcha.ready) return;
     setBusy(true);
-    const user = await dispatch(signInWithPassword(email.trim(), password));
+    const user = await dispatch(signInWithPassword(email.trim(), password, captcha.token ?? undefined));
     if (user) navigate(homePath(user.role));
-    else setBusy(false);
+    else {
+      setBusy(false);
+      captcha.reset();          // a token works once
+    }
   };
 
   const quickLogin = async (u: DemoUser) => {
@@ -87,7 +93,9 @@ export function Login() {
           />
         </Field>
 
-        <button type="submit" className="btn-primary w-full justify-center" disabled={busy}>
+        <CaptchaBox captcha={captcha} />
+
+        <button type="submit" className="btn-primary w-full justify-center" disabled={busy || !captcha.ready}>
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
           {busy ? 'Signing in…' : 'Sign in'}
         </button>

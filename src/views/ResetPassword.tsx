@@ -7,6 +7,8 @@ import { KeyRound, Loader2 } from 'lucide-react';
 import { useAppDispatch } from '@/store/hooks';
 import { performPasswordReset } from '@/store/thunks';
 import { AuthShell } from '@/components/auth/AuthShell';
+import { CaptchaBox } from '@/components/auth/CaptchaBox';
+import { useCaptcha } from '@/hooks/useCaptcha';
 import { Field, Input } from '@/components/ui';
 
 export function ResetPassword() {
@@ -20,12 +22,13 @@ export function ResetPassword() {
   const [confirm, setConfirm] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const captcha = useCaptcha();
 
   const invalidLink = !token || !email;
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (busy) return;
+    if (busy || !captcha.ready) return;
     if (password !== confirm) {
       setError('Passwords do not match.');
       return;
@@ -33,10 +36,11 @@ export function ResetPassword() {
     setError(null);
     setBusy(true);
     const ok = await dispatch(
-      performPasswordReset({ email, token, password, password_confirmation: confirm }),
+      performPasswordReset({ email, token, password, password_confirmation: confirm, captchaToken: captcha.token ?? undefined }),
     );
     setBusy(false);
     if (ok) navigate('/login');
+    else captcha.reset();       // a token works once
   };
 
   return (
@@ -65,7 +69,8 @@ export function ResetPassword() {
           <Field label="Confirm new password" required error={error ?? undefined}>
             <Input type="password" autoComplete="new-password" required value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="Repeat password" />
           </Field>
-          <button type="submit" className="btn-primary w-full justify-center" disabled={busy}>
+          <CaptchaBox captcha={captcha} />
+          <button type="submit" className="btn-primary w-full justify-center" disabled={busy || !captcha.ready}>
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
             {busy ? 'Updating…' : 'Update password'}
           </button>

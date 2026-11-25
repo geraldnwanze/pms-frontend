@@ -6,6 +6,8 @@ import { Mail, Loader2, CheckCircle2 } from 'lucide-react';
 import { useAppDispatch } from '@/store/hooks';
 import { requestPasswordReset } from '@/store/thunks';
 import { AuthShell } from '@/components/auth/AuthShell';
+import { CaptchaBox } from '@/components/auth/CaptchaBox';
+import { useCaptcha } from '@/hooks/useCaptcha';
 import { Field, Input } from '@/components/ui';
 
 export function ForgotPassword() {
@@ -14,16 +16,19 @@ export function ForgotPassword() {
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
   const [devUrl, setDevUrl] = useState<string | undefined>();
+  const captcha = useCaptcha();
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (busy) return;
+    if (busy || !captcha.ready) return;
     setBusy(true);
-    const { ok, devUrl } = await dispatch(requestPasswordReset(email.trim()));
+    const { ok, devUrl } = await dispatch(requestPasswordReset(email.trim(), captcha.token ?? undefined));
     setBusy(false);
     if (ok) {
       setSent(true);
       setDevUrl(devUrl);
+    } else {
+      captcha.reset();          // a token works once
     }
   };
 
@@ -60,7 +65,8 @@ export function ForgotPassword() {
           <Field label="Email" required>
             <Input type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" />
           </Field>
-          <button type="submit" className="btn-primary w-full justify-center" disabled={busy}>
+          <CaptchaBox captcha={captcha} />
+          <button type="submit" className="btn-primary w-full justify-center" disabled={busy || !captcha.ready}>
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
             {busy ? 'Sending…' : 'Send reset link'}
           </button>
